@@ -33,6 +33,8 @@ class AssemblyMutationTests(unittest.TestCase):
         (self.root / "pipeline/contracts/assembly.md").write_text("fixture assembly contract\n", encoding="utf-8")
         (self.root / "pipeline/schemas").mkdir(parents=True)
         (self.root / "pipeline/schemas/assembly.schema.json").write_text("fixture assembly schema\n", encoding="utf-8")
+        (self.root / "pipeline/schemas/certification.schema.json").write_text("fixture certification schema\n", encoding="utf-8")
+        (self.root / "pipeline/schemas/finalization.schema.json").write_text("fixture finalization schema\n", encoding="utf-8")
         write_json(self.root / "pipeline/manifests/pipeline.manifest.json", {"pipeline_version": "1.7.0", "fixture": True})
         self.source_path = self.root / "Source.md"
         self.source_path.write_text("alpha\n\n## [1] USER\n\nOne.\n\n## [2] CHATGPT\n\nTwo.\n", encoding="utf-8")
