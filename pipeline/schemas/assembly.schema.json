@@ -1,15 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "assembly.schema.json",
-  "title": "Book assembly sidecar",
+  "title": "Revision 1.7 deterministic assembly artifacts",
   "type": "object",
-  "required": ["block_id", "book_path", "start_offset", "end_offset", "payload_sha256"],
-  "properties": {
-    "block_id": {"type": "string", "pattern": "^B[0-9]{4,}$"},
-    "book_path": {"type": "string"},
-    "start_offset": {"type": "integer", "minimum": 0},
-    "end_offset": {"type": "integer", "minimum": 0},
-    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "placement_kind": {"enum": ["PRIMARY", "UNMAPPED"]}
-  }
+  "oneOf": [
+    {
+      "required": ["manifest_type", "manifest_version", "candidate_sha256", "book_sha256"],
+      "properties": {
+        "manifest_type": {"const": "assembly"},
+        "manifest_version": {"const": "1.7.0"},
+        "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "book_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "authorized_mapping_status": {"const": "AUTHORIZED"}
+      }
+    },
+    {
+      "required": ["assembly_index", "block_id", "target_id", "role", "placement", "source_raw_sha256", "source_normalized_sha256", "payload_sha256"],
+      "properties": {
+        "assembly_index": {"type": "integer", "minimum": 1},
+        "block_id": {"type": "string", "pattern": "^B[0-9]{4,}$"},
+        "target_id": {"type": "string"},
+        "role": {"const": "PRIMARY"},
+        "placement": {"type": "integer", "minimum": 1},
+        "source_raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_normalized_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  ]
 }

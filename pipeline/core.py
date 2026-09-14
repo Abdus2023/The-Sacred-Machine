@@ -32,6 +32,7 @@ OUTLINE_ID_RE = re.compile(r"^(?:BOOK|V[0-9]{2}(?:-P[0-9]{2})?(?:-C[0-9]{2})?(?:
 OUTLINE_ID_PREFIX_RE = re.compile(r"^(BOOK|V[0-9]{2}(?:-P[0-9]{2})?(?:-C[0-9]{2})?(?:-S[0-9]{2})?)\s+(?:—|--|-)\s+(.+)$")
 ALLOWED_ROLES = {"PRIMARY", "SECONDARY", "REFERENCE", "DUPLICATE", "EXPLICITLY_UNMAPPED"}
 MAPPING_GATES = ["MAP-000", *[f"MAP-{index:03d}" for index in range(1, 16)]]
+ASSEMBLY_SCHEMA_VERSION = "1.7.0"
 ALLOWED_STATUSES = {"VERIFIED", "PARTIALLY_VERIFIED", "PROVISIONAL", "BLOCKED"}
 EVIDENCE_CLASSES = {"REPOSITORY", "FIXTURE", "UNIT_TEST", "MUTATION_TEST", "CI", "MANUAL_REVIEW"}
 
@@ -999,14 +1000,17 @@ def write_mapping_authorization(
         "status": "AUTHORIZED",
         "authorization": "AUTHORIZED",
         "mapping_sha256": canonical_hash,
+        "mapping_input_sha256": validation.get("mapping_input_sha256"),
         "source_manifest_hash": validation.get("source_manifest_hash"),
         "block_manifest_hash": block_manifest_hash,
         "outline_raw_sha256": outline.get("raw_sha256"),
         "outline_normalized_sha256": outline.get("normalized_sha256"),
         "outline_review_hash": review_validation.get("review_record_sha256"),
+        "review_status": "REVIEWED",
         "pipeline_version": PIPELINE_VERSION,
         "validation_result": "VERIFIED",
         "mapping_validation_artifact": "artifacts/mapping/mapping.validation.json",
+        "mapping_validation_sha256": sha256_file(root / "artifacts" / "mapping" / "mapping.validation.json"),
         "canonical_mapping_artifact": canonical_path.relative_to(root).as_posix(),
         "review_evidence_class": review_validation.get("review_evidence_class"),
     }
@@ -1141,6 +1145,7 @@ def validate_mapping_admission(
     )
     validation.update({
         "mapping_file": mapping_input.relative_to(root).as_posix(),
+        "mapping_input_sha256": sha256_file(mapping_input),
         "review_validation_status": review_validation["status"],
         "admission": "AUTHORIZED" if validation["status"] == "AUTHORIZED" else "BLOCKED",
     })
@@ -1328,16 +1333,20 @@ def assemble(
     mapping: Mapping[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     block_by_id = {block["block_id"]: block for block in blocks}
-    outline_by_id = _outline_by_id(outline)
     outline_positions = {node["outline_id"]: index for index, node in enumerate(outline["nodes"])}
+    source_positions = {block["block_id"]: block["source"]["sequence"] for block in blocks}
     rows_by_outline: dict[str, list[dict[str, Any]]] = {}
     for entry in mapping.get("entries", []):
         if entry.get("role") == "EXPLICITLY_UNMAPPED":
             continue
         rows_by_outline.setdefault(entry["target_id"], []).append(entry)
     for entries in rows_by_outline.values():
-        entries.sort(key=lambda entry: (entry["role"] != "PRIMARY", entry["placement"], entry["block_id"]))
-    source_positions = {block["block_id"]: block["source"]["sequence"] for block in blocks}
+        entries.sort(key=lambda entry: (
+            entry["role"] != "PRIMARY",
+            entry["placement"],
+            source_positions[entry["block_id"]],
+            entry["block_id"],
+        ))
     output = bytearray()
     placements: list[dict[str, Any]] = []
 
@@ -1346,7 +1355,7 @@ def assemble(
         if not text.endswith("\n"):
             output.extend(b"\n")
 
-    def payload(block_id: str, role: str, outline_id: str, placement_index: int) -> None:
+    def payload(block_id: str, role: str, target_id: str, placement: int, placement_index: int) -> None:
         block = block_by_id[block_id]
         structural(f"<!-- BLOCK: {block_id} -->\n")
         start = len(output)
@@ -1358,15 +1367,21 @@ def assemble(
         structural(f"<!-- END BLOCK: {block_id} -->\n")
         placements.append(
             {
+                "assembly_index": placement_index,
                 "placement_index": placement_index,
                 "block_id": block_id,
-                "outline_id": outline_id,
+                "target_id": target_id,
                 "role": role,
-                "placement_kind": "PRIMARY" if role == "PRIMARY" else "UNMAPPED",
+                "placement": placement,
+                "placement_kind": "PRIMARY",
                 "book_path": book_path.name,
                 "start_offset": start,
                 "end_offset": end,
                 "payload_sha256": sha256_bytes(data),
+                "source_span": block["source"],
+                "source_raw_sha256": block["raw_sha256"],
+                "source_normalized_sha256": block["normalized_sha256"],
+                "payload_hash_domain": "normalized_source_representation",
             }
         )
 
@@ -1383,33 +1398,375 @@ def assemble(
             structural(f"[GAP: {outline_id}]\n")
         for row in payload_rows:
             placement_index += 1
-            payload(row["block_id"], "PRIMARY", outline_id, placement_index)
+            payload(row["block_id"], "PRIMARY", outline_id, row["placement"], placement_index)
         for row in rows:
             if row["role"] != "PRIMARY":
                 structural(f"[{row['role']}: {row['block_id']}]\n")
 
-    explicit_unmapped = {entry["block_id"] for entry in mapping.get("entries", []) if entry.get("role") == "EXPLICITLY_UNMAPPED"}
-    unmapped = sorted(set(mapping.get("unmapped_block_ids", [])) | explicit_unmapped, key=lambda item: source_positions[item])
-    if unmapped:
-        structural("# Unmapped source blocks\n")
-        structural("<!-- STRUCTURAL POLICY: UNMAPPED blocks retain source payload below -->\n")
-        for block_id in unmapped:
-            placement_index += 1
-            payload(block_id, "UNMAPPED", "UNMAPPED", placement_index)
+    # EXPLICITLY_UNMAPPED dispositions remain in the mapping and validation
+    # artifacts but are deliberately absent from the candidate payload.
 
     book_bytes = bytes(output)
     atomic_write(book_path, book_bytes)
     assembly_header = {
         "manifest_type": "assembly",
-        "manifest_version": "1.0.0",
+        "manifest_version": "1.7.0",
         "book_path": book_path.name,
         "candidate_sha256": sha256_bytes(book_bytes),
         "book_sha256": sha256_bytes(book_bytes),
-        "payload_policy": "offsets are UTF-8 byte offsets; end_offset is exclusive; envelope is outside ranges",
+        "authorized_mapping_status": "AUTHORIZED",
+        "payload_policy": "normalized source representation; offsets are UTF-8 byte offsets; end_offset is exclusive; envelope is outside ranges",
         "placements": len(placements),
+        "unmapped_block_ids": sorted(set(mapping.get("unmapped_block_ids", [])) | {entry["block_id"] for entry in mapping.get("entries", []) if entry.get("role") == "EXPLICITLY_UNMAPPED"}),
     }
     write_jsonl(assembly_path, [assembly_header, *placements])
     return assembly_header, placements
+
+
+def assembly_order(mapping: Mapping[str, Any], outline: Mapping[str, Any], blocks: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Calculate the canonical PRIMARY source-block sequence for assembly."""
+    outline_positions = {node["outline_id"]: index for index, node in enumerate(outline["nodes"])}
+    source_positions = {block["block_id"]: block["source"]["sequence"] for block in blocks}
+    entries = [entry for entry in mapping.get("entries", []) if entry.get("role") == "PRIMARY"]
+    entries.sort(key=lambda entry: (
+        outline_positions[entry["target_id"]],
+        entry["placement"],
+        source_positions[entry["block_id"]],
+        entry["block_id"],
+    ))
+    return [entry["block_id"] for entry in entries]
+
+
+def assembly_envelope_sha256(book: bytes, placements: Sequence[Mapping[str, Any]]) -> str:
+    """Hash candidate structure with source payload ranges replaced by tokens."""
+    output = bytearray()
+    cursor = 0
+    for placement in sorted(placements, key=lambda item: item.get("start_offset", 0)):
+        start = placement.get("start_offset")
+        end = placement.get("end_offset")
+        if not isinstance(start, int) or not isinstance(end, int) or start < cursor or end < start or end > len(book):
+            return "INVALID"
+        output.extend(book[cursor:start])
+        output.extend(f"<SOURCE_PAYLOAD:{placement.get('block_id')}>".encode("utf-8"))
+        cursor = end
+    output.extend(book[cursor:])
+    return sha256_bytes(bytes(output))
+
+
+def assembly_dependency_payload(
+    source_manifest_hash: str,
+    block_manifest_hash: str,
+    outline: Mapping[str, Any],
+    outline_review_hash: str,
+    mapping_sha256_value: str,
+    mapping_manifest_hash: str,
+    assembly_contract_hash: str,
+) -> dict[str, Any]:
+    return {
+        "source_manifest_hash": source_manifest_hash,
+        "block_manifest_hash": block_manifest_hash,
+        "outline_raw_sha256": outline["raw_sha256"],
+        "outline_normalized_sha256": outline["normalized_sha256"],
+        "outline_review_hash": outline_review_hash,
+        "mapping_sha256": mapping_sha256_value,
+        "mapping_manifest_hash": mapping_manifest_hash,
+        "assembly_contract_hash": assembly_contract_hash,
+        "pipeline_version": PIPELINE_VERSION,
+        "assembly_schema_version": ASSEMBLY_SCHEMA_VERSION,
+    }
+
+
+def assembly_admission_record(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Revalidate every authorized mapping dependency before candidate creation."""
+    if evidence_class not in EVIDENCE_CLASSES:
+        raise ValueError(evidence_class)
+    source_path = root / "Source.md"
+    outline_path = root / "BOOK_OUTLINE.md"
+    source_manifest_path = root / "pipeline" / "manifests" / "source.manifest.json"
+    block_manifest_path = root / "pipeline" / "manifests" / "blocks.manifest.json"
+    blocks_path = root / "artifacts" / "decomposition" / "CONTENT_BLOCKS.jsonl"
+    review_path = root / "artifacts" / "review" / "OUTLINE_REVIEW.json"
+    mapping_input_path = root / "artifacts" / "mapping" / "mapping.input.json"
+    mapping_manifest_path = root / "pipeline" / "manifests" / "mapping.manifest.json"
+    mapping_canonical_path = root / "artifacts" / "mapping" / "mapping.canonical.json"
+    mapping_validation_path = root / "artifacts" / "mapping" / "mapping.validation.json"
+    map_admission_path = root / "artifacts" / "mapping" / "MAP_000_ADMISSION.json"
+    assembly_schema_path = root / "pipeline" / "schemas" / "assembly.schema.json"
+    assembly_contract_path = root / "pipeline" / "contracts" / "assembly.md"
+    pipeline_manifest_path = root / "pipeline" / "manifests" / "pipeline.manifest.json"
+    paths = [source_path, outline_path, source_manifest_path, block_manifest_path, blocks_path, review_path, mapping_input_path, mapping_manifest_path, mapping_canonical_path, mapping_validation_path, map_admission_path, assembly_schema_path, assembly_contract_path, pipeline_manifest_path]
+    checks: list[dict[str, Any]] = []
+    def add(check: str, status: str, expected: str, observed: str) -> None:
+        checks.append({"check": check, "status": status, "expected": expected, "observed": observed})
+
+    loaded_source_manifest = None
+    loaded_block_manifest = None
+    loaded_mapping_manifest = None
+    loaded_mapping_validation = None
+    loaded_mapping = None
+    loaded_map_admission = None
+    loaded_pipeline_manifest = None
+    for path in paths:
+        if not path.exists():
+            add(path.name, "BLOCKED", "required assembly input exists", "absent")
+    try:
+        current_source_manifest, fresh_blocks = decompose(source_path)
+    except (OSError, PipelineError) as exc:
+        current_source_manifest, fresh_blocks = None, []
+        add("source_integrity", "BLOCKED", "current Source.md is readable", str(exc))
+    try:
+        loaded_source_manifest = load_json(source_manifest_path)
+        loaded_block_manifest = load_json(block_manifest_path)
+        stored_blocks = load_jsonl(blocks_path)
+    except (OSError, PipelineError, json.JSONDecodeError) as exc:
+        stored_blocks = []
+        add("manifest_integrity", "FAIL", "source and block manifests are readable", str(exc))
+    else:
+        add("source_integrity", "PASS" if current_source_manifest == loaded_source_manifest else "FAIL", "source manifest equals current Source.md", "match" if current_source_manifest == loaded_source_manifest else "mismatch")
+        add("block_integrity", "PASS" if stored_blocks == fresh_blocks else "FAIL", "block manifest/decomposition equals current Source.md", "match" if stored_blocks == fresh_blocks else "mismatch")
+    preflight, outline = outline_preflight(outline_path, evidence_class)
+    if preflight["status"] != "VERIFIED" or outline is None:
+        add("outline_integrity", "BLOCKED", "reviewed outline preflight is VERIFIED", preflight.get("status", "BLOCKED"))
+        outline = None
+    else:
+        add("outline_integrity", "PASS", "current outline preflight is VERIFIED", "VERIFIED")
+    review_validation = verify_outline_review(root, outline or {}, evidence_class, outline_path)
+    add("review_binding", "PASS" if review_validation.get("status") == "VERIFIED" else "BLOCKED", "current review replay is VERIFIED", review_validation.get("status", "BLOCKED"))
+    try:
+        loaded_mapping_manifest = load_json(mapping_manifest_path)
+        loaded_mapping_validation = load_json(mapping_validation_path)
+        loaded_mapping = load_json(mapping_canonical_path)
+        loaded_map_admission = load_json(map_admission_path)
+        loaded_pipeline_manifest = load_json(pipeline_manifest_path)
+    except (OSError, PipelineError, json.JSONDecodeError) as exc:
+        add("mapping_artifacts", "BLOCKED", "authorized mapping artifacts are readable", str(exc))
+    current_source_hash = sha256_file(source_manifest_path) if source_manifest_path.exists() else None
+    current_block_hash = sha256_file(block_manifest_path) if block_manifest_path.exists() else None
+    current_review_hash = review_validation.get("review_record_sha256")
+    mapping_manifest_hash = sha256_file(mapping_manifest_path) if mapping_manifest_path.exists() else None
+    assembly_contract_hash = sha256_file(assembly_contract_path) if assembly_contract_path.exists() else None
+    if isinstance(loaded_pipeline_manifest, dict):
+        add("pipeline_manifest", "PASS" if loaded_pipeline_manifest.get("pipeline_version") == PIPELINE_VERSION else "FAIL", "pipeline manifest binds current pipeline version", str(loaded_pipeline_manifest.get("pipeline_version")))
+    if isinstance(loaded_mapping_manifest, dict):
+        mapping_hash = loaded_mapping_manifest.get("mapping_sha256")
+        canonical_hash = mapping_sha256(loaded_mapping) if isinstance(loaded_mapping, Mapping) else None
+        add("mapping_status", "PASS" if loaded_mapping_manifest.get("status") == "AUTHORIZED" else "FAIL", "mapping status is AUTHORIZED", str(loaded_mapping_manifest.get("status")))
+        add("mapping_hash", "PASS" if mapping_hash and mapping_hash == canonical_hash else "FAIL", "mapping hash matches mapping.canonical.json", "match" if mapping_hash and mapping_hash == canonical_hash else "mismatch")
+        add("source_hash", "PASS" if current_source_hash and loaded_mapping_manifest.get("source_manifest_hash") == current_source_hash else "FAIL", "mapping source hash matches current manifest", "match" if current_source_hash and loaded_mapping_manifest.get("source_manifest_hash") == current_source_hash else "mismatch")
+        add("block_manifest_hash", "PASS" if current_block_hash and loaded_mapping_manifest.get("block_manifest_hash") == current_block_hash else "FAIL", "mapping block manifest hash matches current manifest", "match" if current_block_hash and loaded_mapping_manifest.get("block_manifest_hash") == current_block_hash else "mismatch")
+        add("outline_hashes", "PASS" if outline and loaded_mapping_manifest.get("outline_raw_sha256") == outline.get("raw_sha256") and loaded_mapping_manifest.get("outline_normalized_sha256") == outline.get("normalized_sha256") else "FAIL", "mapping outline hashes match current outline", "match" if outline and loaded_mapping_manifest.get("outline_raw_sha256") == outline.get("raw_sha256") and loaded_mapping_manifest.get("outline_normalized_sha256") == outline.get("normalized_sha256") else "mismatch")
+        add("review_hash", "PASS" if current_review_hash and loaded_mapping_manifest.get("outline_review_hash") == current_review_hash else "FAIL", "mapping review hash matches current review", "match" if current_review_hash and loaded_mapping_manifest.get("outline_review_hash") == current_review_hash else "mismatch")
+        add("review_status", "PASS" if review_validation.get("review_status") == "REVIEWED" and loaded_mapping_manifest.get("review_status") == "REVIEWED" else "FAIL", "review status remains REVIEWED", f"{review_validation.get('review_status')} / {loaded_mapping_manifest.get('review_status')}")
+        add("mapping_input_hash", "PASS" if mapping_input_path.exists() and loaded_mapping_manifest.get("mapping_input_sha256") == sha256_file(mapping_input_path) else "FAIL", "mapping input has not changed", "match" if mapping_input_path.exists() and loaded_mapping_manifest.get("mapping_input_sha256") == sha256_file(mapping_input_path) else "mismatch")
+        add("mapping_manifest_valid", "PASS" if loaded_mapping_manifest.get("manifest_type") == "mapping_authorization" and loaded_mapping_manifest.get("authorization") == "AUTHORIZED" else "FAIL", "mapping manifest is valid and authorized", "valid" if loaded_mapping_manifest.get("authorization") == "AUTHORIZED" else "invalid")
+        add("mapping_validation_hash", "PASS" if mapping_validation_path.exists() and loaded_mapping_manifest.get("mapping_validation_sha256") == sha256_file(mapping_validation_path) else "FAIL", "mapping validation artifact hash is exact", "match" if mapping_validation_path.exists() and loaded_mapping_manifest.get("mapping_validation_sha256") == sha256_file(mapping_validation_path) else "mismatch")
+    if isinstance(loaded_mapping_validation, dict):
+        validation_checks = loaded_mapping_validation.get("checks", [])
+        validation_ok = loaded_mapping_validation.get("status") == "AUTHORIZED" and all(item.get("status") == "PASS" for item in validation_checks) and isinstance(loaded_mapping_manifest, dict) and loaded_mapping_validation.get("mapping_sha256") == loaded_mapping_manifest.get("mapping_sha256")
+        add("mapping_validation", "PASS" if validation_ok else "FAIL", "mapping validation is AUTHORIZED, hash-bound, and every MAP gate passes", "PASS" if validation_ok else "FAIL")
+    if isinstance(loaded_map_admission, dict):
+        map0_ok = loaded_map_admission.get("status") == "PASS" and loaded_map_admission.get("source_manifest_hash") == current_source_hash and loaded_map_admission.get("block_manifest_hash") == current_block_hash and loaded_map_admission.get("outline_raw_sha256") == (outline.get("raw_sha256") if outline else None) and loaded_map_admission.get("outline_normalized_sha256") == (outline.get("normalized_sha256") if outline else None) and loaded_map_admission.get("outline_review_hash") == current_review_hash and loaded_map_admission.get("mapping_sha256") == (loaded_mapping_manifest.get("mapping_sha256") if isinstance(loaded_mapping_manifest, dict) else None)
+        add("MAP-000", "PASS" if map0_ok else "FAIL", "MAP-000 is PASS and exact current dependencies", "PASS" if map0_ok else "FAIL")
+    dependency_values = [current_source_hash, current_block_hash, outline.get("raw_sha256") if outline else None, outline.get("normalized_sha256") if outline else None, current_review_hash, loaded_mapping_manifest.get("mapping_sha256") if isinstance(loaded_mapping_manifest, dict) else None, mapping_manifest_hash, assembly_contract_hash]
+    add("dependency_hashes", "PASS" if all(isinstance(value, str) and value for value in dependency_values) else "BLOCKED", "all ASM-000 dependency hashes are current and exact", "available" if all(isinstance(value, str) and value for value in dependency_values) else "missing")
+    statuses = [item["status"] for item in checks]
+    status = "BLOCKED" if "BLOCKED" in statuses else "FAIL" if "FAIL" in statuses else "PASS"
+    result = {
+        "artifact_type": "assembly_admission",
+        "artifact_version": "1.7.0",
+        "evidence_class": evidence_class,
+        "gate_id": "ASM-000",
+        "status": status,
+        "checks": checks,
+        "source_manifest_hash": current_source_hash,
+        "block_manifest_hash": current_block_hash,
+        "outline_raw_sha256": outline.get("raw_sha256") if outline else None,
+        "outline_normalized_sha256": outline.get("normalized_sha256") if outline else None,
+        "outline_review_hash": current_review_hash,
+        "mapping_manifest_hash": mapping_manifest_hash,
+        "assembly_contract_hash": assembly_contract_hash,
+        "mapping_sha256": loaded_mapping_manifest.get("mapping_sha256") if isinstance(loaded_mapping_manifest, dict) else None,
+    }
+    write_json(root / "artifacts" / "assembly" / "ASM_000_ADMISSION.json", result)
+    write_text(root / "artifacts" / "assembly" / "ASM_000_ADMISSION.md", report("ASM-000_ASSEMBLY_ADMISSION", "VERIFIED" if status == "PASS" else "BLOCKED", [{"gate": "ASM-000", "status": status, "expected": "authorized mapping and all assembly dependencies are valid", "observed": status, "affected_artifacts": ["artifacts/assembly/ASM_000_ADMISSION.json"]}], "ASM-000 does not authorize certification or finalization.", evidence_class=evidence_class))
+    result["context"] = {"source_manifest": loaded_source_manifest, "blocks": stored_blocks, "outline": outline, "mapping": loaded_mapping, "mapping_manifest": loaded_mapping_manifest, "mapping_validation": loaded_mapping_validation, "review_validation": review_validation, "mapping_manifest_hash": mapping_manifest_hash}
+    return result
+
+
+def verify_assembly_candidate(
+    root: Path,
+    source_path: Path,
+    source_manifest: Mapping[str, Any],
+    blocks: Sequence[Mapping[str, Any]],
+    outline: Mapping[str, Any],
+    mapping: Mapping[str, Any],
+    book_path: Path,
+    assembly_path: Path,
+    assembly_manifest_path: Path,
+    evidence_class: str = "FIXTURE",
+) -> dict[str, Any]:
+    """Verify candidate bytes, provenance, completeness, order, and dependencies."""
+    if evidence_class not in EVIDENCE_CLASSES:
+        raise ValueError(evidence_class)
+    checks: list[dict[str, Any]] = []
+    admission = assembly_admission_record(root, evidence_class)
+    checks.append({"gate": "ASM-000", "status": admission["status"], "expected": "authorized mapping admission passes", "observed": admission["status"], "affected_artifacts": ["artifacts/assembly/ASM_000_ADMISSION.json"]})
+    try:
+        manifest = load_json(assembly_manifest_path)
+        records = load_jsonl(assembly_path)
+        header = records[0]
+        placements = records[1:]
+        candidate = book_path.read_bytes()
+    except (OSError, PipelineError, json.JSONDecodeError, IndexError) as exc:
+        checks.append({"gate": "ASM-PROVENANCE", "status": "FAIL", "expected": "candidate, assembly sidecar, and assembly manifest exist", "observed": str(exc), "affected_artifacts": [str(book_path), str(assembly_path), str(assembly_manifest_path)]})
+        return {"status": "BLOCKED", "evidence_class": evidence_class, "checks": checks}
+    current_candidate_hash = sha256_bytes(candidate)
+    checks.append({"gate": "ASM-HASH", "status": "PASS" if manifest.get("candidate_sha256") == current_candidate_hash and header.get("candidate_sha256") == current_candidate_hash else "FAIL", "expected": "candidate hash matches sidecar and assembly manifest", "observed": "match" if manifest.get("candidate_sha256") == current_candidate_hash and header.get("candidate_sha256") == current_candidate_hash else "mismatch", "affected_artifacts": [str(book_path), str(assembly_manifest_path)]})
+    block_by_id = {block["block_id"]: block for block in blocks}
+    source_ids = set(block_by_id)
+    placement_ids = [item.get("block_id") for item in placements]
+    marker_ids = [item.decode("ascii") for item in re.findall(rb"<!-- BLOCK: (B[0-9]{4,}) -->", candidate)]
+    provenance_ok = manifest.get("placements") == placements and all(item.get("block_id") in source_ids and item.get("target_id") in {node["outline_id"] for node in outline["nodes"]} and item.get("role") == "PRIMARY" for item in placements) and marker_ids == placement_ids and len(placement_ids) == len(set(placement_ids))
+    checks.append({"gate": "ASM-PROVENANCE", "status": "PASS" if provenance_ok else "FAIL", "expected": "every candidate payload has one known block identity and target_id", "observed": "linked" if provenance_ok else "unlinked or unauthorized payload", "affected_artifacts": [str(book_path), str(assembly_path)], "affected_blocks": sorted(set(str(item) for item in placement_ids if item not in source_ids))})
+    verbatim_failures = []
+    for item in placements:
+        block = block_by_id.get(item.get("block_id"))
+        start, end = item.get("start_offset"), item.get("end_offset")
+        payload = candidate[start:end] if block is not None and isinstance(start, int) and isinstance(end, int) and 0 <= start <= end <= len(candidate) else b""
+        if block is None or payload != block["original_text"].encode("utf-8") or item.get("payload_sha256") != sha256_bytes(payload) or item.get("source_normalized_sha256") != block["normalized_sha256"]:
+            verbatim_failures.append(str(item.get("block_id")))
+    checks.append({"gate": "ASM-VERBATIM", "status": "PASS" if not verbatim_failures else "FAIL", "expected": "candidate payload equals normalized source representation for every block", "observed": "all exact" if not verbatim_failures else f"{len(verbatim_failures)} mismatch(es)", "affected_artifacts": [str(book_path), str(assembly_path)], "affected_blocks": verbatim_failures})
+    expected_order = assembly_order(mapping, outline, blocks)
+    complete_ok = placement_ids == expected_order and set(placement_ids) == set(expected_order)
+    checks.append({"gate": "ASM-COMPLETE", "status": "PASS" if complete_ok else "FAIL", "expected": "all and only authorized PRIMARY blocks appear once", "observed": "complete" if complete_ok else "missing, duplicate, or unauthorized block", "affected_artifacts": [str(book_path), str(assembly_path)], "affected_blocks": sorted(set(expected_order) ^ set(placement_ids))})
+    order_ok = placement_ids == expected_order
+    checks.append({"gate": "ASM-ORDER", "status": "PASS" if order_ok else "FAIL", "expected": "candidate sequence equals outline/placement/source tie-break order", "observed": "equal" if order_ok else "different", "affected_artifacts": [str(book_path), str(assembly_path)], "affected_blocks": placement_ids if not order_ok else []})
+    envelope_hash = assembly_envelope_sha256(candidate, placements)
+    checks.append({"gate": "ASM-ENVELOPE", "status": "PASS" if manifest.get("structural_envelope_sha256") == envelope_hash else "FAIL", "expected": "structural envelope hash matches candidate", "observed": "match" if manifest.get("structural_envelope_sha256") == envelope_hash else "mismatch", "affected_artifacts": [str(book_path), str(assembly_manifest_path)]})
+    dependency = manifest.get("dependencies", {})
+    dependency_ok = manifest.get("manifest_type") == "assembly" and manifest.get("manifest_version") == "1.7.0" and manifest.get("status") == "VERIFIED" and manifest.get("mapping_status") == "AUTHORIZED" and manifest.get("source_representation") == "NORMALIZED_SOURCE" and manifest.get("assembly_schema_version") == ASSEMBLY_SCHEMA_VERSION and dependency == assembly_dependency_payload(
+        admission.get("source_manifest_hash"), admission.get("block_manifest_hash"), outline, admission.get("outline_review_hash"), admission.get("mapping_sha256"), admission.get("mapping_manifest_hash"), admission.get("assembly_contract_hash"),
+    ) and manifest.get("ordered_block_sequence") == expected_order and manifest.get("assembly_sidecar_sha256") == sha256_file(assembly_path)
+    checks.append({"gate": "ASM-DEPENDENCY", "status": "PASS" if dependency_ok else "FAIL", "expected": "assembly manifest binds current dependencies and ordered block sequence", "observed": "match" if dependency_ok else "mismatch", "affected_artifacts": [str(assembly_manifest_path), "artifacts/assembly/assembly.dependencies.json"]})
+    roundtrip_ok = True
+    roundtrip_artifact = manifest.get("candidate_roundtrip_artifact")
+    provenance_artifact = manifest.get("provenance_reconstruction_artifact")
+    if roundtrip_artifact or provenance_artifact:
+        try:
+            roundtrip_path = root / str(roundtrip_artifact)
+            provenance_path = root / str(provenance_artifact)
+            roundtrip = load_json(roundtrip_path)
+            provenance = load_json(provenance_path)
+            roundtrip_ok = roundtrip.get("candidate_sha256") == current_candidate_hash and roundtrip.get("ordered_block_sequence") == expected_order and manifest.get("candidate_roundtrip_sha256") == sha256_file(roundtrip_path) and provenance.get("candidate_sha256") == current_candidate_hash and provenance.get("placements") == placements and manifest.get("provenance_reconstruction_sha256") == sha256_file(provenance_path)
+        except (OSError, PipelineError, json.JSONDecodeError):
+            roundtrip_ok = False
+    checks.append({"gate": "ASM-ROUNDTRIP", "status": "PASS" if roundtrip_ok else "FAIL", "expected": "candidate roundtrip and provenance reconstruction are hash-bound", "observed": "match" if roundtrip_ok else "mismatch", "affected_artifacts": [str(book_path), str(assembly_manifest_path), str(roundtrip_artifact or ""), str(provenance_artifact or "")]})
+    status = "VERIFIED" if all(item["status"] == "PASS" for item in checks) else "BLOCKED"
+    result = {"artifact_type": "assembly_validation", "artifact_version": "1.7.0", "evidence_class": evidence_class, "status": status, "checks": checks, "candidate_sha256": current_candidate_hash, "ordered_block_sequence": expected_order}
+    write_json(root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.json", result)
+    write_text(root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.md", report("ASSEMBLY_VALIDATION", status, checks, "Scope: deterministic candidate construction only; certification and finalization are not performed.", evidence_class=evidence_class))
+    return result
+
+
+def assemble_authorized(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Construct a candidate only after ASM-000 and authorized mapping replay pass."""
+    admission = assembly_admission_record(root, evidence_class)
+    if admission["status"] != "PASS":
+        return {"status": "BLOCKED", "stage": "assembly admission", "assembly_admission": admission}
+    context = admission["context"]
+    source_path = root / "Source.md"
+    book_path = root / "artifacts" / "assembly" / "BOOK_FINAL_CANDIDATE.md"
+    assembly_path = root / "artifacts" / "assembly" / "BOOK_ASSEMBLY.jsonl"
+    assembly_manifest_path = root / "pipeline" / "manifests" / "assembly.manifest.json"
+    if any(path.exists() for path in (book_path, assembly_path, assembly_manifest_path)):
+        if not all(path.exists() for path in (book_path, assembly_path, assembly_manifest_path)):
+            return {"status": "BLOCKED", "stage": "assembly verification", "assembly_admission": admission, "assembly_validation": {"status": "BLOCKED", "reason": "partial candidate artifacts; automatic repair is prohibited"}}
+        existing_validation = verify_assembly_candidate(root, source_path, context["source_manifest"], context["blocks"], context["outline"], context["mapping"], book_path, assembly_path, assembly_manifest_path, evidence_class)
+        if existing_validation["status"] != "VERIFIED":
+            return {"status": "BLOCKED", "stage": "assembly verification", "assembly_admission": admission, "assembly_validation": existing_validation}
+        return {"status": "VERIFIED", "stage": "assembly", "assembly_admission": admission, "assembly_validation": existing_validation, "assembly_manifest": load_json(assembly_manifest_path), "candidate": book_path.relative_to(root).as_posix()}
+    mapping_manifest_hash = context["mapping_manifest_hash"]
+    dependency = assembly_dependency_payload(
+        admission["source_manifest_hash"], admission["block_manifest_hash"], context["outline"], admission["outline_review_hash"], admission["mapping_sha256"], mapping_manifest_hash, admission["assembly_contract_hash"],
+    )
+    write_json(root / "artifacts" / "assembly" / "assembly.dependencies.json", dependency)
+    _, placements = assemble(book_path, assembly_path, context["blocks"], context["outline"], context["mapping"])
+    candidate = book_path.read_bytes()
+    block_by_id = {block["block_id"]: block for block in context["blocks"]}
+    mapping_dispositions = []
+    for entry in sorted(context["mapping"].get("entries", []), key=lambda item: (item.get("target_id") or "", item.get("placement", 0), item.get("block_id", ""), item.get("role", ""))):
+        block = block_by_id[entry["block_id"]]
+        mapping_dispositions.append({
+            "block_id": entry["block_id"],
+            "target_id": entry.get("target_id"),
+            "role": entry["role"],
+            "placement": entry["placement"],
+            "source_span": block["source"],
+            "source_raw_sha256": block["raw_sha256"],
+            "source_normalized_sha256": block["normalized_sha256"],
+            "payload_contributed": entry["role"] == "PRIMARY",
+        })
+    assembly_manifest = {
+        "manifest_type": "assembly",
+        "manifest_version": "1.7.0",
+        "evidence_class": evidence_class,
+        "status": "VERIFIED",
+        "assembly_schema_version": ASSEMBLY_SCHEMA_VERSION,
+        "source_representation": "NORMALIZED_SOURCE",
+        "dependencies": dependency,
+        "dependency_sha256": sha256_bytes(canonical_json_bytes(dependency)),
+        "candidate_sha256": sha256_bytes(candidate),
+        "assembly_sidecar_sha256": sha256_file(assembly_path),
+        "structural_envelope_sha256": assembly_envelope_sha256(candidate, placements),
+        "ordered_block_sequence": [item["block_id"] for item in placements],
+        "placements": placements,
+        "mapping_dispositions": mapping_dispositions,
+        "unmapped_block_ids": context["mapping"].get("unmapped_block_ids", []),
+        "candidate_artifact": book_path.relative_to(root).as_posix(),
+        "assembly_sidecar_artifact": assembly_path.relative_to(root).as_posix(),
+        "mapping_status": "AUTHORIZED",
+    }
+    write_json(assembly_manifest_path, assembly_manifest)
+    validation = verify_assembly_candidate(root, source_path, context["source_manifest"], context["blocks"], context["outline"], context["mapping"], book_path, assembly_path, assembly_manifest_path, evidence_class)
+    if validation["status"] != "VERIFIED":
+        return {"status": "BLOCKED", "stage": "assembly verification", "assembly_admission": admission, "assembly_validation": validation}
+    roundtrip = {
+        "artifact_type": "candidate_roundtrip",
+        "artifact_version": "1.7.0",
+        "evidence_class": evidence_class,
+        "status": "VERIFIED",
+        "candidate_sha256": assembly_manifest["candidate_sha256"],
+        "ordered_block_sequence": assembly_manifest["ordered_block_sequence"],
+        "extracted_payloads": [
+            {"block_id": item["block_id"], "payload_sha256": item["payload_sha256"], "source_normalized_sha256": item["source_normalized_sha256"], "start_offset": item["start_offset"], "end_offset": item["end_offset"]}
+            for item in placements
+        ],
+    }
+    provenance = {
+        "artifact_type": "provenance_reconstruction",
+        "artifact_version": "1.7.0",
+        "evidence_class": evidence_class,
+        "status": "VERIFIED",
+        "candidate_sha256": assembly_manifest["candidate_sha256"],
+        "dependency_sha256": assembly_manifest["dependency_sha256"],
+        "source_manifest_hash": admission["source_manifest_hash"],
+        "block_manifest_hash": admission["block_manifest_hash"],
+        "outline_review_hash": admission["outline_review_hash"],
+        "mapping_sha256": admission["mapping_sha256"],
+        "placements": placements,
+        "mapping_dispositions": mapping_dispositions,
+        "unmapped_block_ids": assembly_manifest["unmapped_block_ids"],
+    }
+    roundtrip_path = root / "artifacts" / "assembly" / "candidate.roundtrip.json"
+    provenance_path = root / "artifacts" / "assembly" / "provenance.reconstruction.json"
+    write_json(roundtrip_path, roundtrip)
+    write_json(provenance_path, provenance)
+    assembly_manifest["candidate_roundtrip_artifact"] = roundtrip_path.relative_to(root).as_posix()
+    assembly_manifest["candidate_roundtrip_sha256"] = sha256_file(roundtrip_path)
+    assembly_manifest["provenance_reconstruction_artifact"] = provenance_path.relative_to(root).as_posix()
+    assembly_manifest["provenance_reconstruction_sha256"] = sha256_file(provenance_path)
+    write_json(assembly_manifest_path, assembly_manifest)
+    return {"status": "VERIFIED", "stage": "assembly", "assembly_admission": admission, "assembly_validation": validation, "assembly_manifest": assembly_manifest, "candidate": book_path.relative_to(root).as_posix()}
 
 
 def verify_assembled(
@@ -1992,8 +2349,28 @@ def preflight_audits(root: Path, source_path: Path, source_manifest: Mapping[str
     write_text(verification_dir / "ORDER_AUDIT.md", report("ORDER_AUDIT", "BLOCKED", [{"gate": "G-VRF-004", "status": "BLOCKED", "expected": "mapping order compared with assembly order", "observed": "no outline or mapping", "affected_artifacts": ["BOOK_OUTLINE.md"]}]))
 
 
+def invalidate_assembly_outputs(root: Path) -> None:
+    for path in (
+        root / "artifacts" / "assembly" / "BOOK_ASSEMBLY.jsonl",
+        root / "artifacts" / "assembly" / "BOOK_FINAL_CANDIDATE.md",
+        root / "artifacts" / "assembly" / "assembly.dependencies.json",
+        root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.json",
+        root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.md",
+        root / "artifacts" / "assembly" / "candidate.roundtrip.json",
+        root / "artifacts" / "assembly" / "provenance.reconstruction.json",
+        root / "artifacts" / "assembly" / "candidate.roundtrip.json",
+        root / "artifacts" / "assembly" / "provenance.reconstruction.json",
+        root / "artifacts" / "assembly" / "ASM_000_ADMISSION.json",
+        root / "artifacts" / "assembly" / "ASM_000_ADMISSION.md",
+        root / "pipeline" / "manifests" / "assembly.manifest.json",
+    ):
+        if path.exists():
+            path.unlink()
+
+
 def invalidate_downstream(root: Path) -> None:
     """Remove generated artifacts that cannot survive a failed admission gate."""
+    invalidate_assembly_outputs(root)
     generated_files = (
         root / "artifacts" / "mapping" / "MAP_000_ADMISSION.json",
         root / "artifacts" / "mapping" / "MAP_000_ADMISSION.md",
@@ -2005,6 +2382,12 @@ def invalidate_downstream(root: Path) -> None:
         root / "pipeline" / "manifests" / "release.manifest.json",
         root / "artifacts" / "assembly" / "BOOK_ASSEMBLY.jsonl",
         root / "artifacts" / "assembly" / "BOOK_FINAL_CANDIDATE.md",
+        root / "artifacts" / "assembly" / "assembly.dependencies.json",
+        root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.json",
+        root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.md",
+        root / "artifacts" / "assembly" / "ASM_000_ADMISSION.json",
+        root / "artifacts" / "assembly" / "ASM_000_ADMISSION.md",
+        root / "pipeline" / "manifests" / "assembly.manifest.json",
     )
     for path in generated_files:
         if path.exists():
@@ -2049,6 +2432,22 @@ def run_pipeline(root: Path, source_name: str = SOURCE_FILE, outline_name: str =
     outline_path = root / outline_name
     if not source_path.exists():
         raise PipelineError(f"Required source file is missing: {source_path}")
+    existing_candidate = root / "artifacts" / "assembly" / "BOOK_FINAL_CANDIDATE.md"
+    existing_sidecar = root / "artifacts" / "assembly" / "BOOK_ASSEMBLY.jsonl"
+    existing_manifest = root / "pipeline" / "manifests" / "assembly.manifest.json"
+    if any(path.exists() for path in (existing_candidate, existing_sidecar, existing_manifest)):
+        if not all(path.exists() for path in (existing_candidate, existing_sidecar, existing_manifest)):
+            return {"status": "BLOCKED", "stage": "assembly verification", "assembly_validation": {"status": "BLOCKED", "reason": "partial candidate artifacts; automatic repair is prohibited"}}
+        try:
+            existing_source_manifest, existing_blocks = decompose(source_path)
+            existing_outline = parse_outline(outline_path)
+            existing_mapping = load_json(root / "artifacts" / "mapping" / "mapping.canonical.json")
+            existing_validation = verify_assembly_candidate(root, source_path, existing_source_manifest, existing_blocks, existing_outline, existing_mapping, existing_candidate, existing_sidecar, existing_manifest, "REPOSITORY")
+        except (OSError, PipelineError, json.JSONDecodeError) as exc:
+            existing_validation = {"status": "BLOCKED", "reason": str(exc)}
+        if existing_validation["status"] != "VERIFIED":
+            return {"status": "BLOCKED", "stage": "assembly verification", "assembly_validation": existing_validation}
+        return {"status": "VERIFIED", "stage": "assembly", "assembly_validation": existing_validation, "candidate": existing_candidate.relative_to(root).as_posix()}
     invalidate_downstream(root)
     source_manifest, blocks = decompose(source_path)
     manifests = root / "pipeline" / "manifests"
@@ -2143,8 +2542,13 @@ def run_pipeline(root: Path, source_name: str = SOURCE_FILE, outline_name: str =
         )
         write_evidence_scope(root, "BLOCKED", "PARTIALLY_VERIFIED")
         mapping_result = validate_mapping_admission(root, source_name, outline_name, "REPOSITORY")
+        assembly_admission = assembly_admission_record(root, "REPOSITORY")
         write_text(root / "FAILURE_REPORT.md", message)
         write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", message)
         write_recovery(root, recovery_plan("outline review", "artifacts/review/OUTLINE_REVIEW.json", str(outline_artifact.relative_to(root)), "a human-supplied ACCEPT review record bound to the exact outline", "python3 -m pipeline.run review-verify", ["review evidence_class must be MANUAL_REVIEW", "decision must be ACCEPT", "raw and normalized outline hashes must match", "BOOK_OUTLINE.md must explicitly be REVIEWED"]))
-        return {"status": "BLOCKED", "stage": "outline review", "outline": outline, "outline_preflight": outline_preflight_result, "review_validation": review_validation, "mapping_admission": mapping_result.get("mapping_admission")}
-    return validate_mapping_admission(root, source_name, outline_name, "REPOSITORY")
+        return {"status": "BLOCKED", "stage": "outline review", "outline": outline, "outline_preflight": outline_preflight_result, "review_validation": review_validation, "mapping_admission": mapping_result.get("mapping_admission"), "assembly_admission": assembly_admission}
+    mapping_result = validate_mapping_admission(root, source_name, outline_name, "REPOSITORY")
+    if mapping_result.get("status") == "AUTHORIZED":
+        return assemble_authorized(root, "REPOSITORY")
+    mapping_result["assembly_admission"] = assembly_admission_record(root, "REPOSITORY")
+    return mapping_result

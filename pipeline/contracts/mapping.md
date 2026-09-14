@@ -8,4 +8,4 @@ The input binds `source_manifest_hash`, `outline_raw_sha256`, `outline_normalize
 
 Canonical mapping bytes use UTF-8 JSON with the repository canonical JSON policy, sorted object keys, semantic entry ordering by block, role, target, and placement, explicit null handling, and LF termination. The generated `mapping_sha256` is not included in its own preimage; it is calculated from those bytes and recorded in `mapping.canonical.json`, `mapping.validation.json`, and `pipeline/manifests/mapping.manifest.json`.
 
-Revision 1.6 stops at mapping authorization. It does not assemble a candidate, certify a release, or create `BOOK_FINAL.md`.
+Revision 1.6 stops at mapping authorization. Revision 1.7 consumes this authorization in a separate ASM-000-gated deterministic assembly boundary; mapping admission itself never assembles, certifies, or creates `BOOK_FINAL.md`.
