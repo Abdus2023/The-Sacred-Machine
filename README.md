@@ -15,9 +15,11 @@ python3 -m pipeline.run outline-preflight
 python3 -m pipeline.run review-verify
 python3 -m pipeline.run mapping-validate
 python3 -m pipeline.run run
+python3 -m pipeline.run candidate-verify
+python3 -m pipeline.run certify
 ```
 
-`outline-preflight` is structural validation only; it never creates or repairs an outline. `review-verify` replays only an externally supplied `artifacts/review/OUTLINE_REVIEW.json`; it never creates approval. `mapping-validate` is review-gated and stops at mapping authorization. The Revision 1.7 `run` command may continue to deterministic assembly only after `MAPPING_STATUS: AUTHORIZED` and ASM-000 pass; it terminates at a verified candidate, assembly manifest, dependency record, and verification evidence. It never certifies, finalizes, creates release artifacts, or creates `BOOK_FINAL.md`.
+`outline-preflight` is structural validation only; it never creates or repairs an outline. `review-verify` replays only an externally supplied `artifacts/review/OUTLINE_REVIEW.json`; it never creates approval. `mapping-validate` is review-gated and stops at mapping authorization. The Revision 1.7 `run` command may continue to deterministic assembly only after `MAPPING_STATUS: AUTHORIZED` and ASM-000 pass; it terminates at a verified candidate, assembly manifest, dependency record, and assembly evidence. Revision 1.8 adds `candidate-verify`, `certify`, and `certificate-verify`: the verifier independently rechecks the complete dependency chain and certification gates, and certification may create only a hash-bound `artifacts/verification/RELEASE_CERTIFICATE.json`. Neither revision certifies by assembly success, finalizes, creates release-final artifacts, or creates `BOOK_FINAL.md`.
 
 `BOOK_OUTLINE.md` is now present as a source-grounded structural proposal. It is explicitly marked `outline_status: PROVISIONAL` and has not been human-reviewed. A run therefore passes structural outline preflight but stops with `BLOCKED` at outline review. This is intentional: the pipeline must not infer human approval from file existence, hashes, parsing, tests, CI, or fixture behavior. No mapping validation, candidate book, certificate, or `BOOK_FINAL.md` is released while outline review is incomplete.
 

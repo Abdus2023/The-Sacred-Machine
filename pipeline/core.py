@@ -1461,8 +1461,9 @@ def assembly_dependency_payload(
     mapping_sha256_value: str,
     mapping_manifest_hash: str,
     assembly_contract_hash: str,
+    candidate_sha256_value: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "source_manifest_hash": source_manifest_hash,
         "block_manifest_hash": block_manifest_hash,
         "outline_raw_sha256": outline["raw_sha256"],
@@ -1474,6 +1475,9 @@ def assembly_dependency_payload(
         "pipeline_version": PIPELINE_VERSION,
         "assembly_schema_version": ASSEMBLY_SCHEMA_VERSION,
     }
+    if candidate_sha256_value is not None:
+        result["candidate_sha256"] = candidate_sha256_value
+    return result
 
 
 def assembly_admission_record(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
@@ -1645,8 +1649,8 @@ def verify_assembly_candidate(
     checks.append({"gate": "ASM-ENVELOPE", "status": "PASS" if manifest.get("structural_envelope_sha256") == envelope_hash else "FAIL", "expected": "structural envelope hash matches candidate", "observed": "match" if manifest.get("structural_envelope_sha256") == envelope_hash else "mismatch", "affected_artifacts": [str(book_path), str(assembly_manifest_path)]})
     dependency = manifest.get("dependencies", {})
     dependency_ok = manifest.get("manifest_type") == "assembly" and manifest.get("manifest_version") == "1.7.0" and manifest.get("status") == "VERIFIED" and manifest.get("mapping_status") == "AUTHORIZED" and manifest.get("source_representation") == "NORMALIZED_SOURCE" and manifest.get("assembly_schema_version") == ASSEMBLY_SCHEMA_VERSION and dependency == assembly_dependency_payload(
-        admission.get("source_manifest_hash"), admission.get("block_manifest_hash"), outline, admission.get("outline_review_hash"), admission.get("mapping_sha256"), admission.get("mapping_manifest_hash"), admission.get("assembly_contract_hash"),
-    ) and manifest.get("ordered_block_sequence") == expected_order and manifest.get("assembly_sidecar_sha256") == sha256_file(assembly_path)
+        admission.get("source_manifest_hash"), admission.get("block_manifest_hash"), outline, admission.get("outline_review_hash"), admission.get("mapping_sha256"), admission.get("mapping_manifest_hash"), admission.get("assembly_contract_hash"), current_candidate_hash,
+    ) and manifest.get("dependency_sha256") == sha256_bytes(canonical_json_bytes(dependency)) and manifest.get("ordered_block_sequence") == expected_order and manifest.get("assembly_sidecar_sha256") == sha256_file(assembly_path)
     checks.append({"gate": "ASM-DEPENDENCY", "status": "PASS" if dependency_ok else "FAIL", "expected": "assembly manifest binds current dependencies and ordered block sequence", "observed": "match" if dependency_ok else "mismatch", "affected_artifacts": [str(assembly_manifest_path), "artifacts/assembly/assembly.dependencies.json"]})
     roundtrip_ok = True
     roundtrip_artifact = manifest.get("candidate_roundtrip_artifact")
@@ -1692,6 +1696,10 @@ def assemble_authorized(root: Path, evidence_class: str = "REPOSITORY") -> dict[
     write_json(root / "artifacts" / "assembly" / "assembly.dependencies.json", dependency)
     _, placements = assemble(book_path, assembly_path, context["blocks"], context["outline"], context["mapping"])
     candidate = book_path.read_bytes()
+    dependency = assembly_dependency_payload(
+        admission["source_manifest_hash"], admission["block_manifest_hash"], context["outline"], admission["outline_review_hash"], admission["mapping_sha256"], mapping_manifest_hash, admission["assembly_contract_hash"], sha256_bytes(candidate),
+    )
+    write_json(root / "artifacts" / "assembly" / "assembly.dependencies.json", dependency)
     block_by_id = {block["block_id"]: block for block in context["blocks"]}
     mapping_dispositions = []
     for entry in sorted(context["mapping"].get("entries", []), key=lambda item: (item.get("target_id") or "", item.get("placement", 0), item.get("block_id", ""), item.get("role", ""))):
@@ -1712,6 +1720,7 @@ def assemble_authorized(root: Path, evidence_class: str = "REPOSITORY") -> dict[
         "evidence_class": evidence_class,
         "status": "VERIFIED",
         "assembly_schema_version": ASSEMBLY_SCHEMA_VERSION,
+        "pipeline_version": PIPELINE_VERSION,
         "source_representation": "NORMALIZED_SOURCE",
         "dependencies": dependency,
         "dependency_sha256": sha256_bytes(canonical_json_bytes(dependency)),
@@ -2009,6 +2018,9 @@ def release_bindings(root: Path, candidate_path: Path) -> dict[str, str]:
 
 
 def verify_release_certificate(root: Path, certificate_json: Path | None = None, candidate_path: Path | None = None) -> dict[str, Any]:
+    if certificate_json is None and (root / "artifacts/verification/RELEASE_CERTIFICATE.json").exists():
+        from .certification import verify_certification_certificate
+        return verify_certification_certificate(root)
     certificate_json = certificate_json or (root / "release" / "RELEASE_CERTIFICATE.json")
     candidate_path = candidate_path or (root / "release" / "BOOK_FINAL_CANDIDATE.md")
     checks: list[dict[str, Any]] = []
@@ -2032,6 +2044,7 @@ def verify_release_certificate(root: Path, certificate_json: Path | None = None,
 
 
 def finalize_certified_candidate(root: Path) -> dict[str, Any]:
+    raise PipelineError("Finalization is reserved for Revision 1.9")
     candidate = root / "release" / "BOOK_FINAL_CANDIDATE.md"
     final = root / "release" / "BOOK_FINAL.md"
     certificate_check = verify_release_certificate(root)
@@ -2065,7 +2078,8 @@ def release_certification(
     assembly_path: Path,
     verification: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Run release-only gates and create final artifacts only on full PASS."""
+    """Disabled in Revision 1.8; certification does not finalize."""
+    raise PipelineError("Legacy release/finalization path is disabled in Revision 1.8; use certify_candidate")
     release_checks: list[dict[str, Any]] = []
     current_checks = list(verification.get("checks", []))
     current_pass = all(item.get("status") == "PASS" for item in current_checks if item.get("gate") in set(verification.get("mandatory_gates", [])))
@@ -2358,11 +2372,13 @@ def invalidate_assembly_outputs(root: Path) -> None:
         root / "artifacts" / "assembly" / "ASSEMBLY_VALIDATION.md",
         root / "artifacts" / "assembly" / "candidate.roundtrip.json",
         root / "artifacts" / "assembly" / "provenance.reconstruction.json",
-        root / "artifacts" / "assembly" / "candidate.roundtrip.json",
-        root / "artifacts" / "assembly" / "provenance.reconstruction.json",
         root / "artifacts" / "assembly" / "ASM_000_ADMISSION.json",
         root / "artifacts" / "assembly" / "ASM_000_ADMISSION.md",
         root / "pipeline" / "manifests" / "assembly.manifest.json",
+        root / "pipeline" / "manifests" / "verification.manifest.json",
+        root / "artifacts" / "verification" / "CANDIDATE_VERIFICATION.json",
+        root / "artifacts" / "verification" / "CANDIDATE_VERIFICATION.md",
+        root / "artifacts" / "verification" / "RELEASE_CERTIFICATE.json",
     ):
         if path.exists():
             path.unlink()
@@ -2552,3 +2568,21 @@ def run_pipeline(root: Path, source_name: str = SOURCE_FILE, outline_name: str =
         return assemble_authorized(root, "REPOSITORY")
     mapping_result["assembly_admission"] = assembly_admission_record(root, "REPOSITORY")
     return mapping_result
+
+
+def verify_candidate_independently(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Lazy public API wrapper for the Revision 1.8 independent verifier."""
+    from .certification import verify_candidate_independently as _verify
+    return _verify(root, evidence_class)
+
+
+def certify_candidate(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Lazy public API wrapper for the Revision 1.8 certification boundary."""
+    from .certification import certify_candidate as _certify
+    return _certify(root, evidence_class)
+
+
+def verify_certification_certificate(root: Path, certificate_path: Path | None = None) -> dict[str, Any]:
+    """Lazy public API wrapper for certificate mutation verification."""
+    from .certification import verify_certification_certificate as _verify_certificate
+    return _verify_certificate(root, certificate_path)

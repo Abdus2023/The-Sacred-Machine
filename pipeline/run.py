@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from .certification import certify_candidate, verify_candidate_independently, verify_certification_certificate
 from .core import PipelineError, clean_generated, invalidate_downstream, outline_preflight, run_pipeline, validate_mapping_admission, verify_outline_review, write_json
 
 
@@ -13,7 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Lossless Source.md reconstruction pipeline; no editorial rewriting is performed."
     )
-    parser.add_argument("command", choices=["run", "outline-preflight", "review-verify", "mapping-validate", "clean"], help="execute a gated pipeline stage or remove generated artifacts")
+    parser.add_argument("command", choices=["run", "outline-preflight", "review-verify", "mapping-validate", "candidate-verify", "certify", "certificate-verify", "clean"], help="execute a gated pipeline stage or remove generated artifacts")
     parser.add_argument("--root", default=None, help="repository root (default: parent of pipeline package)")
     parser.add_argument("--source", default="Source.md", help="authoritative source filename")
     parser.add_argument("--outline", default="BOOK_OUTLINE.md", help="authoritative outline filename")
@@ -52,6 +53,21 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PIPELINE={result['status']}")
             print(f"STAGE={result.get('stage', 'mapping validation')}")
             return 0 if result["status"] in {"VERIFIED", "AUTHORIZED"} else 2
+        if args.command == "candidate-verify":
+            result = verify_candidate_independently(root, "REPOSITORY")
+            print(f"PIPELINE={result['status']}")
+            print("STAGE=candidate verification")
+            return 0 if result["status"] == "VERIFIED" else 2
+        if args.command == "certify":
+            result = certify_candidate(root, "REPOSITORY")
+            print(f"PIPELINE={result['status']}")
+            print("STAGE=candidate certification")
+            return 0 if result["status"] == "CERTIFIED" else 2
+        if args.command == "certificate-verify":
+            result = verify_certification_certificate(root)
+            print(f"PIPELINE={result['status']}")
+            print("STAGE=certificate verification")
+            return 0 if result["status"] == "VERIFIED" else 2
         result = run_pipeline(root, args.source, args.outline)
         print(f"PIPELINE={result.get('status', 'BLOCKED')}")
         if result.get("stage"):

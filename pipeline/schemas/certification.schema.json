@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "certification.schema.json",
+  "title": "Revision 1.8 candidate verification and release certificate",
+  "type": "object",
+  "required": ["artifact_type", "artifact_version", "evidence_class", "status", "bindings"],
+  "properties": {
+    "artifact_type": {"const": "release_certificate"},
+    "certificate_version": {"const": "1.8.0"},
+    "evidence_class": {"enum": ["REPOSITORY", "FIXTURE", "UNIT_TEST", "MUTATION_TEST", "CI", "MANUAL_REVIEW"]},
+    "status": {"const": "CERTIFIED"},
+    "certification_status": {"const": "CERTIFIED"},
+    "finalization": {"const": "FORBIDDEN_IN_REVISION_1_8"},
+    "bindings": {
+      "type": "object",
+      "required": ["candidate_sha256", "source_manifest_hash", "block_manifest_hash", "outline_raw_sha256", "outline_normalized_sha256", "outline_review_hash", "mapping_sha256", "assembly_manifest_hash", "verification_manifest_hash", "pipeline_version"],
+      "properties": {
+        "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "block_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "outline_raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "outline_normalized_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "outline_review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "mapping_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "assembly_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "verification_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "pipeline_version": {"const": "1.8.0"}
+      }
+    }
+  }
+}
