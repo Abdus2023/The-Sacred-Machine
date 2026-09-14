@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mapping.schema.json",
+  "title": "Reviewed source-to-outline mapping input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mapping_version", "source_manifest_hash", "outline_hash", "outline_status", "review_status", "entries"],
+  "properties": {
+    "mapping_version": {"const": "1.0"},
+    "source_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "outline_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "outline_status": {"const": "REVIEWED"},
+    "review_status": {"enum": ["REVIEWED", "DRAFT", "PROVISIONAL", "REJECTED"]},
+    "reviewed_by": {"type": "string", "minLength": 1},
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block_id", "role", "placement"],
+        "properties": {
+          "block_id": {"type": "string", "pattern": "^B[0-9]{4,}$"},
+          "target": {"type": ["string", "null"], "pattern": "^(?:BOOK|V[0-9]{2}(?:-P[0-9]{2})?(?:-C[0-9]{2})?(?:-S[0-9]{2})?|O[0-9]{4,})$"},
+          "placement": {"type": "integer", "minimum": 1},
+          "role": {"enum": ["PRIMARY", "SECONDARY", "REFERENCE", "DUPLICATE", "EXPLICITLY_UNMAPPED"]}
+        }
+      }
+    },
+    "unmapped_block_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^B[0-9]{4,}$"}
+    },
+    "duplicate_relations": {"type": "array"}
+  }
+}

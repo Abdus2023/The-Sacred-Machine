@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assembly.schema.json",
+  "title": "Book assembly sidecar",
+  "type": "object",
+  "required": ["block_id", "book_path", "start_offset", "end_offset", "payload_sha256"],
+  "properties": {
+    "block_id": {"type": "string", "pattern": "^B[0-9]{4,}$"},
+    "book_path": {"type": "string"},
+    "start_offset": {"type": "integer", "minimum": 0},
+    "end_offset": {"type": "integer", "minimum": 0},
+    "payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "placement_kind": {"enum": ["PRIMARY", "UNMAPPED"]}
+  }
+}

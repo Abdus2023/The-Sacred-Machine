@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "outline_review.schema.json",
+  "title": "Externally supplied human outline review",
+  "description": "This record is external input. The pipeline may validate it, but never creates or promotes it.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "evidence_class",
+    "decision",
+    "outline_status_before",
+    "outline_status_after",
+    "reviewer",
+    "reviewed_at_utc",
+    "reviewed_outline_raw_sha256",
+    "reviewed_outline_normalized_sha256"
+  ],
+  "properties": {
+    "evidence_class": {"const": "MANUAL_REVIEW"},
+    "decision": {"enum": ["ACCEPT", "ACCEPT_WITH_CHANGES", "REJECT"]},
+    "outline_status_before": {"const": "PROVISIONAL"},
+    "outline_status_after": {"const": "REVIEWED"},
+    "reviewer": {"type": "string", "minLength": 1},
+    "reviewed_at_utc": {"type": "string", "minLength": 1},
+    "reviewed_outline_raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewed_outline_normalized_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "manifest.schema.json",
+  "title": "Canonical pipeline manifest envelope",
+  "type": "object",
+  "required": ["manifest_type", "manifest_version"],
+  "properties": {
+    "manifest_type": {"type": "string"},
+    "manifest_version": {"type": "string"},
+    "status": {"enum": ["VERIFIED", "PARTIALLY_VERIFIED", "PROVISIONAL", "BLOCKED"]}
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "content_block.schema.json",
+  "title": "Immutable source content block",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["block_id", "source", "original_text", "raw_sha256", "normalized_sha256"],
+  "properties": {
+    "block_id": {"type": "string", "pattern": "^B[0-9]{4,}$"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sequence", "start_line", "end_line", "start_byte", "end_byte"],
+      "properties": {
+        "file": {"const": "Source.md"},
+        "sequence": {"type": "integer", "minimum": 1},
+        "start_line": {"type": "integer", "minimum": 1},
+        "end_line": {"type": "integer", "minimum": 1},
+        "start_byte": {"type": "integer", "minimum": 0},
+        "end_byte": {"type": "integer", "minimum": 0}
+      }
+    },
+    "original_text": {"type": "string"},
+    "raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "normalized_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
