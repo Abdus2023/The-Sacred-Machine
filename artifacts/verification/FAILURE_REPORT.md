@@ -4,7 +4,7 @@
 
 ## Failure
 - **Stage:** outline review
-- **Gate:** REVIEW-001..008
+- **Gate:** REVIEW-001..009
 - **Check:** human review replay and exact outline binding
 - **Expected:** MANUAL_REVIEW ACCEPT record bound to current reviewed outline hashes
 - **Observed:** outline review is absent, invalid, or the outline remains PROVISIONAL

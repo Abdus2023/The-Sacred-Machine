@@ -112,12 +112,13 @@ class OutlineReviewMutationTests(unittest.TestCase):
         review = {
             "evidence_class": "MANUAL_REVIEW",
             "decision": "ACCEPT",
+            "review_status": "REVIEWED",
             "outline_status_before": "PROVISIONAL",
             "outline_status_after": "REVIEWED",
             "reviewer": "fixture-reviewer",
             "reviewed_at_utc": "2026-09-14T00:00:00Z",
-            "reviewed_outline_raw_sha256": sha256_bytes(outline_bytes),
-            "reviewed_outline_normalized_sha256": outline["normalized_sha256"],
+            "outline_raw_sha256": sha256_bytes(outline_bytes),
+            "outline_normalized_sha256": outline["normalized_sha256"],
         }
         write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW.json", review)
         return outline_path, root, review, outline_bytes
@@ -174,14 +175,14 @@ class OutlineReviewMutationTests(unittest.TestCase):
     def test_OR_07_raw_outline_hash_mutation_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             outline_path, root, review, _ = self._fixture(directory)
-            review["reviewed_outline_raw_sha256"] = "0" * 64
+            review["outline_raw_sha256"] = "0" * 64
             write_json(root / "artifacts/review/OUTLINE_REVIEW.json", review)
             self.assertEqual(self._verify(root, outline_path)["status"], "BLOCKED")
 
     def test_OR_08_normalized_outline_hash_mutation_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             outline_path, root, review, _ = self._fixture(directory)
-            review["reviewed_outline_normalized_sha256"] = "0" * 64
+            review["outline_normalized_sha256"] = "0" * 64
             write_json(root / "artifacts/review/OUTLINE_REVIEW.json", review)
             self.assertEqual(self._verify(root, outline_path)["status"], "BLOCKED")
 
@@ -210,6 +211,8 @@ class OutlineReviewMutationTests(unittest.TestCase):
     def test_MAP_000_precedes_mapping_gates_and_does_not_assemble(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            (root / "pipeline/contracts").mkdir(parents=True)
+            (root / "pipeline/contracts/mapping.md").write_text("fixture mapping contract\n", encoding="utf-8")
             source_path = root / "Source.md"
             source_path.write_text("source\n", encoding="utf-8")
             outline_path = root / "BOOK_OUTLINE.md"
@@ -221,25 +224,28 @@ class OutlineReviewMutationTests(unittest.TestCase):
             review = {
                 "evidence_class": "MANUAL_REVIEW",
                 "decision": "ACCEPT",
+                "review_status": "REVIEWED",
                 "outline_status_before": "PROVISIONAL",
                 "outline_status_after": "REVIEWED",
                 "reviewer": "fixture-reviewer",
                 "reviewed_at_utc": "2026-09-14T00:00:00Z",
-                "reviewed_outline_raw_sha256": sha256_bytes(outline_bytes),
-                "reviewed_outline_normalized_sha256": outline["normalized_sha256"],
+                "outline_raw_sha256": sha256_bytes(outline_bytes),
+                "outline_normalized_sha256": outline["normalized_sha256"],
             }
             write_json(root / "artifacts/review/OUTLINE_REVIEW.json", review)
             mapping = {
                 "mapping_version": "1.0",
+                "mapping_schema_version": "1.6.0",
                 "source_manifest_hash": sha256_bytes(canonical_json_bytes(source_manifest)),
-                "outline_hash": outline["normalized_sha256"],
-                "outline_status": "REVIEWED",
+                "outline_raw_sha256": outline["raw_sha256"],
+                "outline_normalized_sha256": outline["normalized_sha256"],
+                "outline_review_hash": sha256_bytes((root / "artifacts/review/OUTLINE_REVIEW.json").read_bytes()),
                 "review_status": "REVIEWED",
-                "entries": [{"block_id": blocks[0]["block_id"], "role": "PRIMARY", "target": "BOOK", "placement": 1}],
+                "entries": [{"block_id": blocks[0]["block_id"], "role": "PRIMARY", "target_id": "BOOK", "placement": 1}],
             }
             write_json(root / "artifacts/mapping/mapping.input.json", mapping)
             result = validate_mapping_admission(root, evidence_class="UNIT_TEST")
-            self.assertEqual(result["status"], "VERIFIED")
+            self.assertEqual(result["status"], "AUTHORIZED")
             self.assertEqual(result["mapping_validation"]["checks"][0]["gate_id"], "MAP-000")
             self.assertTrue(all(check["status"] == "PASS" for check in result["mapping_validation"]["checks"]))
             self.assertFalse((root / "artifacts/assembly/BOOK_FINAL_CANDIDATE.md").exists())

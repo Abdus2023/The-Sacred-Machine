@@ -514,19 +514,19 @@ def verify_outline_review(
     checks: list[dict[str, Any]] = []
     if not review_path.exists():
         checks.append({"gate_id": "REVIEW-001", "status": "BLOCKED", "check": "review_record_exists", "expected": "human-supplied OUTLINE_REVIEW.json exists", "observed": "absent"})
-        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.5.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks, "review_record": "NOT_PRESENT"}
+        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.6.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks, "review_record": "NOT_PRESENT"}
         write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW_VALIDATION.json", result)
         return result
     try:
         record = load_json(review_path)
     except (FileNotFoundError, PipelineError) as exc:
         checks.append({"gate_id": "REVIEW-001", "status": "FAIL", "check": "review_record_readable", "expected": "valid JSON review record", "observed": str(exc)})
-        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.5.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
+        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.6.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
         write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW_VALIDATION.json", result)
         return result
     if not isinstance(record, dict):
         checks.append({"gate_id": "REVIEW-001", "status": "FAIL", "check": "review_record_shape", "expected": "review record is a JSON object", "observed": type(record).__name__})
-        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.5.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
+        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.6.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
         write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW_VALIDATION.json", result)
         return result
     authoritative_outline_path = outline_path or root / "BOOK_OUTLINE.md"
@@ -535,7 +535,7 @@ def verify_outline_review(
         normalized = canonicalize(raw)
     except (OSError, PipelineError) as exc:
         checks.append({"gate_id": "REVIEW-008", "status": "BLOCKED", "check": "current_outline_readable", "expected": "current authoritative outline is readable and canonicalizable", "observed": str(exc)})
-        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.5.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
+        result = {"artifact_type": "outline_review_validation", "artifact_version": "1.6.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": "BLOCKED", "checks": checks}
         write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW_VALIDATION.json", result)
         return result
     expected_raw = sha256_bytes(raw)
@@ -552,12 +552,14 @@ def verify_outline_review(
         {"gate_id": "REVIEW-003", "status": "PASS" if record.get("decision") == "ACCEPT" else "FAIL", "check": "review_decision", "expected": "decision == ACCEPT", "observed": record.get("decision")},
         {"gate_id": "REVIEW-004", "status": "PASS" if record.get("outline_status_before") == "PROVISIONAL" and record.get("outline_status_after") == "REVIEWED" else "FAIL", "check": "review_transition", "expected": "PROVISIONAL to REVIEWED", "observed": f"{record.get('outline_status_before')} to {record.get('outline_status_after')}"},
         {"gate_id": "REVIEW-005", "status": "PASS" if isinstance(record.get("reviewer"), str) and bool(record.get("reviewer").strip()) and isinstance(record.get("reviewed_at_utc"), str) and bool(record.get("reviewed_at_utc").strip()) else "FAIL", "check": "review_governance_metadata", "expected": "non-empty reviewer and reviewed_at_utc strings are present", "observed": "present" if isinstance(record.get("reviewer"), str) and record.get("reviewer").strip() and isinstance(record.get("reviewed_at_utc"), str) and record.get("reviewed_at_utc").strip() else "missing"},
-        {"gate_id": "REVIEW-006", "status": "PASS" if record.get("reviewed_outline_raw_sha256") == expected_raw else "FAIL", "check": "reviewed_raw_hash", "expected": expected_raw, "observed": record.get("reviewed_outline_raw_sha256")},
-        {"gate_id": "REVIEW-007", "status": "PASS" if record.get("reviewed_outline_normalized_sha256") == expected_normalized else "FAIL", "check": "reviewed_normalized_hash", "expected": expected_normalized, "observed": record.get("reviewed_outline_normalized_sha256")},
-        {"gate_id": "REVIEW-008", "status": "PASS" if outline.get("outline_status") == "REVIEWED" else "FAIL", "check": "current_outline_review_status", "expected": "current outline_status == REVIEWED", "observed": outline.get("outline_status")},
+        {"gate_id": "REVIEW-006", "status": "PASS" if record.get("outline_raw_sha256") == expected_raw else "FAIL", "check": "reviewed_raw_hash", "expected": expected_raw, "observed": record.get("outline_raw_sha256")},
+        {"gate_id": "REVIEW-007", "status": "PASS" if record.get("outline_normalized_sha256") == expected_normalized else "FAIL", "check": "reviewed_normalized_hash", "expected": expected_normalized, "observed": record.get("outline_normalized_sha256")},
+        {"gate_id": "REVIEW-008", "status": "PASS" if record.get("review_status") == "REVIEWED" else "FAIL", "check": "review_status", "expected": "review_status == REVIEWED", "observed": record.get("review_status")},
+        {"gate_id": "REVIEW-009", "status": "PASS" if outline.get("outline_status") == "REVIEWED" else "FAIL", "check": "current_outline_review_status", "expected": "current outline_status == REVIEWED", "observed": outline.get("outline_status")},
     ])
     status = "VERIFIED" if all(check["status"] == "PASS" for check in checks) else "BLOCKED"
-    result = {"artifact_type": "outline_review_validation", "artifact_version": "1.5.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": status, "decision_outcome": decision_outcome, "checks": checks, "review_record_sha256": sha256_file(review_path)}
+    review_hash = sha256_file(review_path)
+    result = {"artifact_type": "outline_review_validation", "artifact_version": "1.6.0", "evidence_class": evidence_class, "review_evidence_class": "MANUAL_REVIEW", "status": status, "decision_outcome": decision_outcome, "review_status": record.get("review_status"), "outline_raw_sha256": expected_raw, "outline_normalized_sha256": expected_normalized, "checks": checks, "review_record_sha256": review_hash}
     write_json(root / "artifacts" / "review" / "OUTLINE_REVIEW_VALIDATION.json", result)
     return result
 
@@ -607,30 +609,128 @@ def manifest_content_hash(value: Mapping[str, Any]) -> str:
     return sha256_bytes(canonical_json_bytes(dict(value)))
 
 
+MAPPING_CANONICAL_FIELDS = (
+    "mapping_version",
+    "mapping_schema_version",
+    "pipeline_version",
+    "source_manifest_hash",
+    "block_manifest_hash",
+    "outline_raw_sha256",
+    "outline_normalized_sha256",
+    "outline_review_hash",
+    "review_status",
+    "entries",
+    "unmapped_block_ids",
+    "duplicate_relations",
+)
+
+
+def canonical_mapping_value(mapping: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the versioned, deterministic mapping representation.
+
+    The input artifact remains untouched. Object keys are canonicalized by
+    ``canonical_json_bytes`` and entry arrays are sorted by explicit semantic
+    fields rather than input order or filesystem order.
+    """
+    if not isinstance(mapping, Mapping):
+        raise PipelineError("mapping root must be an object")
+    entries = []
+    raw_entries = mapping.get("entries", [])
+    if not isinstance(raw_entries, list):
+        raw_entries = []
+    for entry in raw_entries:
+        if not isinstance(entry, Mapping):
+            entries.append(entry)
+            continue
+        normalized_entry = {
+            "block_id": entry.get("block_id"),
+            "role": entry.get("role"),
+            "target_id": entry.get("target_id"),
+            "placement": entry.get("placement"),
+        }
+        entries.append(normalized_entry)
+    entries.sort(key=lambda entry: (
+        str(entry.get("block_id")),
+        str(entry.get("role")),
+        "" if entry.get("target_id") is None else str(entry.get("target_id")),
+        entry.get("placement") if isinstance(entry.get("placement"), int) else 0,
+    ))
+    result: dict[str, Any] = {}
+    for field in MAPPING_CANONICAL_FIELDS:
+        if field == "entries":
+            result[field] = entries
+        elif field == "unmapped_block_ids":
+            unmapped = mapping.get(field, [])
+            result[field] = sorted(unmapped) if isinstance(unmapped, list) else unmapped
+        elif field == "duplicate_relations":
+            relations = mapping.get(field, [])
+            result[field] = sorted(relations, key=lambda value: canonical_json_bytes(value)) if isinstance(relations, list) else relations
+        elif field in mapping:
+            result[field] = mapping[field]
+    return result
+
+
+def canonical_mapping_bytes(mapping: Mapping[str, Any]) -> bytes:
+    """Serialize a mapping under the declared canonical mapping contract."""
+    return canonical_json_bytes(canonical_mapping_value(mapping))
+
+
+def mapping_sha256(mapping: Mapping[str, Any]) -> str:
+    return sha256_bytes(canonical_mapping_bytes(mapping))
+
+
 def validate_mapping(
     mapping: Mapping[str, Any],
     blocks: Sequence[Mapping[str, Any]],
     outline: Mapping[str, Any],
     source_manifest_hash: str | None = None,
+    block_manifest_hash: str | None = None,
+    review_hash: str | None = None,
 ) -> list[str]:
     errors: list[str] = []
     if not isinstance(mapping, Mapping):
         return ["MAP-001: mapping root must be an object"]
+    allowed_fields = {
+        "mapping_version", "mapping_schema_version", "pipeline_version",
+        "source_manifest_hash", "block_manifest_hash", "outline_raw_sha256",
+        "outline_normalized_sha256", "outline_review_hash", "review_status",
+        "entries", "unmapped_block_ids", "duplicate_relations", "mapping_sha256",
+    }
+    unknown_fields = set(mapping) - allowed_fields
+    if unknown_fields:
+        errors.append(f"MAP-001: unsupported mapping fields: {sorted(unknown_fields)}")
     if mapping.get("mapping_version") != "1.0":
-        errors.append("MAP-002: mapping_version must be exactly '1.0'")
-    if mapping.get("review_status") != "REVIEWED":
-        errors.append("MAP-005: mapping review_status must be exactly 'REVIEWED'")
-    if mapping.get("outline_status") != "REVIEWED" or outline.get("outline_status") != "REVIEWED":
-        errors.append("MAP-005: reviewed outline status is not REVIEWED")
+        errors.append("MAP-006: mapping_version must be exactly '1.0'")
+    if mapping.get("mapping_schema_version") is not None and mapping.get("mapping_schema_version") != "1.6.0":
+        errors.append("MAP-006: mapping_schema_version must be exactly '1.6.0' when supplied")
+    if mapping.get("review_status") != "REVIEWED" or outline.get("outline_status") != "REVIEWED":
+        errors.append("MAP-005: mapping and current outline review_status must be exactly 'REVIEWED'")
     actual_source_hash = mapping.get("source_manifest_hash")
     if not isinstance(actual_source_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", actual_source_hash):
-        errors.append("MAP-003: source_manifest_hash must be a SHA-256 hex digest")
+        errors.append("MAP-002: source_manifest_hash must be a SHA-256 hex digest")
     elif source_manifest_hash is not None and actual_source_hash != source_manifest_hash:
-        errors.append("MAP-003/MAP-014: mapping source_manifest_hash does not match current source manifest (STALE_SOURCE_BINDING)")
-    actual_outline_hash = mapping.get("outline_hash")
-    expected_outline_hash = outline.get("normalized_sha256", outline.get("outline_sha256"))
-    if actual_outline_hash != expected_outline_hash:
-        errors.append("MAP-004/MAP-014: mapping outline_hash does not match current reviewed outline (STALE_OUTLINE_BINDING)")
+        errors.append("MAP-002/MAP-014: mapping source_manifest_hash does not match current source manifest (STALE_SOURCE_BINDING)")
+    expected_raw_hash = outline.get("raw_sha256")
+    expected_normalized_hash = outline.get("normalized_sha256", outline.get("outline_sha256"))
+    actual_raw_hash = mapping.get("outline_raw_sha256")
+    actual_normalized_hash = mapping.get("outline_normalized_sha256")
+    if actual_raw_hash != expected_raw_hash or not isinstance(actual_raw_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", actual_raw_hash):
+        errors.append("MAP-005/MAP-014: mapping outline_raw_sha256 does not match current outline (STALE_OUTLINE_BINDING)")
+    if actual_normalized_hash != expected_normalized_hash or not isinstance(actual_normalized_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", actual_normalized_hash):
+        errors.append("MAP-005/MAP-014: mapping outline_normalized_sha256 does not match current outline (STALE_OUTLINE_BINDING)")
+    actual_review_hash = mapping.get("outline_review_hash")
+    if not isinstance(actual_review_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", actual_review_hash):
+        errors.append("MAP-005: outline_review_hash must be a SHA-256 hex digest")
+    elif review_hash is not None and actual_review_hash != review_hash:
+        errors.append("MAP-005/MAP-014: mapping outline_review_hash does not match current review record (STALE_REVIEW_BINDING)")
+    actual_block_hash = mapping.get("block_manifest_hash")
+    if actual_block_hash is not None:
+        if not isinstance(actual_block_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", actual_block_hash):
+            errors.append("MAP-003: block_manifest_hash must be a SHA-256 hex digest")
+        elif block_manifest_hash is not None and actual_block_hash != block_manifest_hash:
+            errors.append("MAP-003/MAP-014: mapping block_manifest_hash does not match current block manifest (STALE_BLOCK_BINDING)")
+    if mapping.get("pipeline_version") is not None and mapping.get("pipeline_version") != PIPELINE_VERSION:
+        errors.append("MAP-014: mapping pipeline_version is stale")
     block_set = {block["block_id"] for block in blocks}
     outline_ids = set(_outline_by_id(outline))
     entries = mapping.get("entries")
@@ -650,12 +750,17 @@ def validate_mapping(
         if not isinstance(entry, dict):
             errors.append(f"MAP-001: {prefix} is not an object")
             continue
+        unknown_fields = set(entry) - {"block_id", "target_id", "role", "placement"}
+        if unknown_fields:
+            errors.append(f"MAP-001: {prefix} has unsupported fields: {sorted(unknown_fields)}")
         if any(key in entry for key in ("original_text", "source_text", "payload")):
             errors.append(f"MAP-001: {prefix} embeds source text instead of a block reference")
         block_id = entry.get("block_id")
         role = entry.get("role")
-        target = entry.get("target")
-        placement = entry.get("placement", entry.get("order"))
+        target = entry.get("target_id")
+        placement = entry.get("placement")
+        if "target" in entry or "order" in entry:
+            errors.append(f"MAP-001: {prefix} uses an unsupported legacy field; use target_id and placement")
         if not isinstance(block_id, str) or block_id not in block_set:
             unknown_blocks.add(str(block_id))
         else:
@@ -674,34 +779,42 @@ def validate_mapping(
             placement_invalid = True
         key = (block_id, role, target, placement)
         if key in seen_entries:
-            errors.append(f"MAP-001: {prefix} duplicates an identical mapping entry")
+            errors.append(f"MAP-011: {prefix} duplicates an identical mapping entry")
         seen_entries.add(key)
         if role == "PRIMARY" and isinstance(block_id, str):
             primary_counts[block_id] = primary_counts.get(block_id, 0) + 1
             primary_ids.add(block_id)
     if unknown_blocks:
-        errors.append(f"MAP-006: unknown block IDs: {sorted(unknown_blocks)}")
+        errors.append(f"MAP-003: unknown block IDs: {sorted(unknown_blocks)}")
     if unknown_targets:
-        errors.append(f"MAP-007: unknown outline targets: {sorted(unknown_targets)}")
+        errors.append(f"MAP-004: unknown outline targets: {sorted(unknown_targets)}")
     if placement_invalid:
-        errors.append("MAP-009: placement values must be positive integers")
+        errors.append("MAP-008: placement values must be positive integers")
     unmapped = mapping.get("unmapped_block_ids", [])
     if not isinstance(unmapped, list) or any(not isinstance(item, str) for item in unmapped):
-        errors.append("MAP-011: unmapped_block_ids must be an array of block IDs")
+        errors.append("MAP-009: unmapped_block_ids must be an array of block IDs")
         unmapped = []
     unmapped_set = set(unmapped) | explicit_entry_unmapped
+    if len(unmapped) != len(set(unmapped)):
+        errors.append("MAP-011: unmapped_block_ids contains duplicate dispositions")
     unknown_unmapped = unmapped_set - block_set
     if unknown_unmapped:
-        errors.append(f"MAP-011: unknown explicitly-unmapped block IDs: {sorted(unknown_unmapped)}")
+        errors.append(f"MAP-009: unknown explicitly-unmapped block IDs: {sorted(unknown_unmapped)}")
     overlap = unmapped_set & mapped_ids
     if overlap:
         errors.append(f"MAP-011: blocks cannot be mapped and explicitly unmapped: {sorted(overlap)}")
     missing = block_set - primary_ids - unmapped_set
     if missing:
-        errors.append(f"MAP-012: blocks require one PRIMARY or explicit UNMAPPED disposition: {sorted(missing)}")
+        errors.append(f"MAP-010: blocks require one PRIMARY or explicit UNMAPPED disposition: {sorted(missing)}")
     multiple = {key: value for key, value in primary_counts.items() if value > 1}
     if multiple:
-        errors.append(f"MAP-010/MAP-013: multiple PRIMARY placements: {multiple}")
+        errors.append(f"MAP-007: multiple PRIMARY placements: {multiple}")
+    supplied_mapping_hash = mapping.get("mapping_sha256")
+    if supplied_mapping_hash is not None:
+        if not isinstance(supplied_mapping_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", supplied_mapping_hash):
+            errors.append("MAP-013: mapping_sha256 must be a SHA-256 hex digest")
+        elif supplied_mapping_hash != mapping_sha256(mapping):
+            errors.append("MAP-013: supplied mapping_sha256 does not match canonical mapping bytes")
     return errors
 
 
@@ -711,46 +824,212 @@ def mapping_validation_record(
     source_manifest_hash: str,
     outline: Mapping[str, Any],
     evidence_class: str = "REPOSITORY",
+    *,
+    block_manifest_hash: str | None = None,
+    review_validation: Mapping[str, Any] | None = None,
+    admission_status: str = "PASS",
+    deterministic: bool = True,
+    canonical_order_valid: bool = True,
+    canonical_hash_valid: bool = True,
 ) -> dict[str, Any]:
+    """Create the deterministic mapping validation/authorization record."""
+    if evidence_class not in EVIDENCE_CLASSES:
+        raise ValueError(evidence_class)
     error_text = " ".join(errors)
+    descriptions = {
+        "MAP-000": "reviewed outline and mapping admission prerequisites valid",
+        "MAP-001": "mapping schema valid",
+        "MAP-002": "source binding valid",
+        "MAP-003": "block references and block manifest binding valid",
+        "MAP-004": "target references valid",
+        "MAP-005": "review binding and status valid",
+        "MAP-006": "mapping version supported",
+        "MAP-007": "PRIMARY uniqueness valid",
+        "MAP-008": "placement validity enforced",
+        "MAP-009": "explicit unmapped handling valid",
+        "MAP-010": "complete block disposition valid",
+        "MAP-011": "partition integrity valid",
+        "MAP-012": "canonical ordering deterministic",
+        "MAP-013": "canonical mapping hash valid",
+        "MAP-014": "stale authoritative input detection valid",
+        "MAP-015": "deterministic validation replay valid",
+    }
     def status_for(gate: str) -> str:
+        if gate == "MAP-000":
+            return admission_status
+        if gate == "MAP-012":
+            return "PASS" if canonical_order_valid else "FAIL"
+        if gate == "MAP-013":
+            return "PASS" if canonical_hash_valid else "FAIL"
         if gate == "MAP-015":
-            return "PASS" if not errors else "FAIL"
+            return "PASS" if deterministic else "FAIL"
         return "FAIL" if gate in error_text else "PASS"
     checks = []
-    descriptions = {
-        "MAP-000": "review replay and mapping admission authorization valid",
-        "MAP-001": "mapping schema valid",
-        "MAP-002": "mapping version supported",
-        "MAP-003": "source manifest binding valid",
-        "MAP-004": "outline binding valid",
-        "MAP-005": "outline and mapping review status valid",
-        "MAP-006": "all block IDs known",
-        "MAP-007": "all target IDs known",
-        "MAP-008": "roles valid",
-        "MAP-009": "placement values valid",
-        "MAP-010": "PRIMARY uniqueness valid",
-        "MAP-011": "explicit-unmapped entries valid",
-        "MAP-012": "complete block disposition",
-        "MAP-013": "duplicate PRIMARY rejected",
-        "MAP-014": "stale mapping rejected",
-        "MAP-015": "canonical mapping deterministic",
-    }
-    for gate, description in descriptions.items():
+    for gate in MAPPING_GATES:
         status = status_for(gate)
-        checks.append({"gate_id": gate, "status": status, "check": description, "expected": description, "observed": "valid" if status == "PASS" else error_text})
+        checks.append({
+            "gate_id": gate,
+            "status": status,
+            "check": descriptions[gate],
+            "expected": descriptions[gate],
+            "observed": "valid" if status == "PASS" else error_text or "admission prerequisite absent",
+        })
+    mapping_hash = None
+    if isinstance(mapping, Mapping):
+        try:
+            mapping_hash = mapping_sha256(mapping)
+        except (PipelineError, TypeError, ValueError):
+            mapping_hash = None
+    review_hash = (review_validation or {}).get("review_record_sha256")
+    authorized = admission_status == "PASS" and not errors and all(check["status"] == "PASS" for check in checks)
     return {
         "artifact_type": "mapping_validation",
-        "artifact_version": "1.5.0",
+        "artifact_version": "1.6.0",
         "evidence_class": evidence_class,
-        "status": "VERIFIED" if not errors else "BLOCKED",
+        "status": "AUTHORIZED" if authorized else "BLOCKED",
+        "mapping_status": "AUTHORIZED" if authorized else "BLOCKED",
+        "validation_result": "VERIFIED" if authorized else "BLOCKED",
+        "authorization": "AUTHORIZED" if authorized else "NOT_AUTHORIZED",
         "source_manifest_hash": source_manifest_hash,
-        "outline_hash": outline.get("normalized_sha256", outline.get("outline_sha256")),
-        "outline_status": outline.get("outline_status"),
+        "block_manifest_hash": block_manifest_hash,
+        "outline_raw_sha256": outline.get("raw_sha256"),
+        "outline_normalized_sha256": outline.get("normalized_sha256", outline.get("outline_sha256")),
+        "outline_review_hash": review_hash or (mapping or {}).get("outline_review_hash") if mapping else review_hash,
+        "mapping_sha256": mapping_hash,
+        "pipeline_version": PIPELINE_VERSION,
         "mapping_review_status": mapping.get("review_status") if mapping else None,
         "checks": checks,
         "errors": list(errors),
+        "evidence_scope": evidence_class,
     }
+
+def mapping_admission_record(
+    root: Path,
+    source_manifest_hash: str,
+    block_manifest_hash: str | None,
+    outline: Mapping[str, Any] | None,
+    review_validation: Mapping[str, Any] | None,
+    mapping: Mapping[str, Any] | None,
+    mapping_input: Path,
+    mapping_errors: Sequence[str] = (),
+    outline_path: Path | None = None,
+    evidence_class: str = "REPOSITORY",
+) -> dict[str, Any]:
+    """Record MAP-000 without converting an absent input into validation."""
+    outline_path = outline_path or root / "BOOK_OUTLINE.md"
+    review_path = root / "artifacts" / "review" / "OUTLINE_REVIEW.json"
+    source_manifest_path = root / "pipeline" / "manifests" / "source.manifest.json"
+    block_manifest_path = root / "pipeline" / "manifests" / "blocks.manifest.json"
+    pipeline_contract_path = root / "pipeline" / "contracts" / "mapping.md"
+    error_text = " ".join(mapping_errors)
+    checks = [
+        {"check": "source_manifest_exists", "status": "PASS" if source_manifest_path.exists() else "BLOCKED", "expected": "source manifest exists", "observed": "present" if source_manifest_path.exists() else "absent"},
+        {"check": "block_manifest_exists", "status": "PASS" if block_manifest_path.exists() else "BLOCKED", "expected": "block manifest exists", "observed": "present" if block_manifest_path.exists() else "absent"},
+        {"check": "pipeline_contract_exists", "status": "PASS" if pipeline_contract_path.exists() else "BLOCKED", "expected": "mapping pipeline contract exists", "observed": "present" if pipeline_contract_path.exists() else "absent"},
+        {"check": "current_outline_exists", "status": "PASS" if outline_path.exists() and outline else "BLOCKED", "expected": "current outline exists", "observed": "present" if outline_path.exists() and outline else "absent or invalid"},
+        {"check": "external_review_exists", "status": "PASS" if review_path.exists() else "BLOCKED", "expected": "external OUTLINE_REVIEW.json exists", "observed": "present" if review_path.exists() else "absent"},
+        {"check": "review_replay", "status": "PASS" if (review_validation or {}).get("status") == "VERIFIED" else "BLOCKED", "expected": "review replay is VERIFIED", "observed": (review_validation or {}).get("status", "NOT_RUN")},
+        {"check": "mapping_input_exists", "status": "PASS" if mapping_input.exists() else "BLOCKED", "expected": "mapping.input.json exists", "observed": "present" if mapping_input.exists() else "absent"},
+    ]
+    if mapping is not None:
+        review_hash = (review_validation or {}).get("review_record_sha256")
+        checks.extend([
+            {"check": "review_decision", "status": "PASS" if (review_validation or {}).get("decision_outcome") == "ACCEPTED" else "FAIL", "expected": "review decision is ACCEPT", "observed": (review_validation or {}).get("decision_outcome", "INVALID")},
+            {"check": "review_status", "status": "PASS" if (review_validation or {}).get("review_status") == "REVIEWED" and mapping.get("review_status") == "REVIEWED" else "FAIL", "expected": "review and mapping review_status are REVIEWED", "observed": f"{(review_validation or {}).get('review_status')} / {mapping.get('review_status')}"},
+            {"check": "source_binding", "status": "PASS" if mapping.get("source_manifest_hash") == source_manifest_hash else "FAIL", "expected": source_manifest_hash, "observed": mapping.get("source_manifest_hash")},
+            {"check": "outline_hash_binding", "status": "PASS" if outline and mapping.get("outline_raw_sha256") == outline.get("raw_sha256") and mapping.get("outline_normalized_sha256") == outline.get("normalized_sha256") else "FAIL", "expected": "current raw and normalized outline hashes", "observed": "match" if outline and mapping.get("outline_raw_sha256") == outline.get("raw_sha256") and mapping.get("outline_normalized_sha256") == outline.get("normalized_sha256") else "mismatch"},
+            {"check": "review_hash_binding", "status": "PASS" if review_hash and mapping.get("outline_review_hash") == review_hash else "FAIL", "expected": review_hash or "current review hash", "observed": mapping.get("outline_review_hash")},
+            {"check": "mapping_version", "status": "PASS" if mapping.get("mapping_version") == "1.0" else "FAIL", "expected": "1.0", "observed": mapping.get("mapping_version")},
+            {"check": "mapping_schema", "status": "FAIL" if "MAP-001" in error_text else "PASS", "expected": "supported mapping schema", "observed": "invalid" if "MAP-001" in error_text else "valid"},
+        ])
+    else:
+        checks.extend([
+            {"check": "review_decision", "status": "BLOCKED", "expected": "review decision is ACCEPT", "observed": "not admitted"},
+            {"check": "review_status", "status": "BLOCKED", "expected": "review and mapping review_status are REVIEWED", "observed": "not admitted"},
+            {"check": "source_binding", "status": "BLOCKED", "expected": source_manifest_hash, "observed": "not admitted"},
+            {"check": "outline_hash_binding", "status": "BLOCKED", "expected": "current raw and normalized outline hashes", "observed": "not admitted"},
+            {"check": "review_hash_binding", "status": "BLOCKED", "expected": "current review hash", "observed": "not admitted"},
+            {"check": "mapping_version", "status": "BLOCKED", "expected": "1.0", "observed": "not admitted"},
+            {"check": "mapping_schema", "status": "BLOCKED", "expected": "supported mapping schema", "observed": "not admitted"},
+        ])
+    statuses = [check["status"] for check in checks]
+    status = "BLOCKED" if "BLOCKED" in statuses else "FAIL" if "FAIL" in statuses else "PASS"
+    try:
+        admitted_mapping_hash = mapping_sha256(mapping) if isinstance(mapping, Mapping) else None
+    except (PipelineError, TypeError, ValueError):
+        admitted_mapping_hash = None
+    result = {
+        "artifact_type": "mapping_admission",
+        "artifact_version": "1.6.0",
+        "evidence_class": evidence_class,
+        "gate_id": "MAP-000",
+        "status": status,
+        "mapping_status": "AUTHORIZED" if status == "PASS" else "BLOCKED",
+        "source_manifest_hash": source_manifest_hash,
+        "block_manifest_hash": block_manifest_hash,
+        "outline_raw_sha256": outline.get("raw_sha256") if outline else None,
+        "outline_normalized_sha256": outline.get("normalized_sha256") if outline else None,
+        "outline_review_hash": (review_validation or {}).get("review_record_sha256"),
+        "mapping_sha256": admitted_mapping_hash,
+        "checks": checks,
+    }
+    write_json(root / "artifacts" / "mapping" / "MAP_000_ADMISSION.json", result)
+    write_text(root / "artifacts" / "mapping" / "MAP_000_ADMISSION.md", report("MAP-000_MAPPING_ADMISSION", "VERIFIED" if status == "PASS" else "BLOCKED", [{"gate": "MAP-000", "status": status, "expected": "all reviewed-outline and mapping admission prerequisites pass", "observed": status, "affected_artifacts": ["artifacts/mapping/MAP_000_ADMISSION.json"]}], "MAP-000 is subordinate to external review and does not authorize assembly."))
+    return result
+
+
+def write_mapping_authorization(
+    root: Path,
+    mapping: Mapping[str, Any],
+    validation: Mapping[str, Any],
+    outline: Mapping[str, Any],
+    review_validation: Mapping[str, Any],
+    block_manifest_hash: str,
+) -> dict[str, Any]:
+    """Persist only the authorized mapping boundary; never assemble a book."""
+    canonical_path = root / "artifacts" / "mapping" / "mapping.canonical.json"
+    canonical_hash = write_json(canonical_path, canonical_mapping_value(mapping))
+    expected_hash = validation.get("mapping_sha256")
+    if expected_hash != canonical_hash:
+        raise PipelineError("canonical mapping hash did not match mapping validation")
+    manifest = {
+        "manifest_type": "mapping_authorization",
+        "manifest_version": "1.6.0",
+        "evidence_class": validation.get("evidence_class", "REPOSITORY"),
+        "status": "AUTHORIZED",
+        "authorization": "AUTHORIZED",
+        "mapping_sha256": canonical_hash,
+        "source_manifest_hash": validation.get("source_manifest_hash"),
+        "block_manifest_hash": block_manifest_hash,
+        "outline_raw_sha256": outline.get("raw_sha256"),
+        "outline_normalized_sha256": outline.get("normalized_sha256"),
+        "outline_review_hash": review_validation.get("review_record_sha256"),
+        "pipeline_version": PIPELINE_VERSION,
+        "validation_result": "VERIFIED",
+        "mapping_validation_artifact": "artifacts/mapping/mapping.validation.json",
+        "canonical_mapping_artifact": canonical_path.relative_to(root).as_posix(),
+        "review_evidence_class": review_validation.get("review_evidence_class"),
+    }
+    write_json(root / "pipeline" / "manifests" / "mapping.manifest.json", manifest)
+    return manifest
+
+
+def write_mapping_blocked_reports(root: Path, stage: str, observed: str, affected: Sequence[str]) -> None:
+    message = render_failure_report(
+        stage,
+        "MAP-000..MAP-015",
+        "mapping admission and validation",
+        "external reviewed mapping satisfies all mapping gates",
+        observed,
+        list(affected),
+        [],
+        "artifacts/mapping/MAP_000_ADMISSION.json",
+        "Supply or correct the external review or mapping input. Do not auto-repair, adopt a proposal, or assemble a book.",
+    )
+    write_text(root / "FAILURE_REPORT.md", message)
+    write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", message)
+    write_recovery(root, recovery_plan(stage, "artifacts/mapping/mapping.input.json", "artifacts/mapping/MAP_000_ADMISSION.json", "a corrected externally supplied mapping input and valid review binding", "python3 -m pipeline.run mapping-validate", ["MAP-000 must PASS", "MAP-001 through MAP-015 must PASS", "mapping authorization must precede any future assembly boundary"]))
+
 
 def validate_mapping_admission(
     root: Path,
@@ -758,12 +1037,7 @@ def validate_mapping_admission(
     outline_name: str = OUTLINE_FILE,
     evidence_class: str = "REPOSITORY",
 ) -> dict[str, Any]:
-    """Run review-gated mapping validation without authorizing assembly.
-
-    This command deliberately stops at mapping validation. It may write only
-    preflight, review-validation, and mapping-validation evidence; it never
-    creates mapping input or downstream book artifacts.
-    """
+    """Admit and validate an external mapping, stopping at authorization."""
     if evidence_class not in EVIDENCE_CLASSES:
         raise ValueError(evidence_class)
     invalidate_downstream(root)
@@ -773,47 +1047,140 @@ def validate_mapping_admission(
     mapping_validation_artifact = root / "artifacts" / "mapping" / "mapping.validation.json"
     if not source_path.exists():
         raise PipelineError(f"Required source file is missing: {source_path}")
+
     source_manifest, blocks = decompose(source_path)
-    source_manifest_hash = sha256_bytes(canonical_json_bytes(source_manifest))
+    manifests = root / "pipeline" / "manifests"
+    blocks_path = root / "artifacts" / "decomposition" / "CONTENT_BLOCKS.jsonl"
+    write_json(manifests / "source.manifest.json", source_manifest)
+    blocks_hash = write_jsonl(blocks_path, blocks)
+    blocks_manifest = {
+        "manifest_type": "blocks",
+        "manifest_version": "1.0.0",
+        "source_manifest_sha256": sha256_file(manifests / "source.manifest.json"),
+        "blocks_artifact": blocks_path.relative_to(root).as_posix(),
+        "blocks_artifact_sha256": blocks_hash,
+        "block_count": len(blocks),
+        "segmentation": DECOMPOSITION_POLICY,
+        "block_id_policy": "B followed by zero-padded four-or-more decimal digits",
+        "payload_policy": "original_text is canonical source slice; no trimming or editorial transformation",
+    }
+    block_manifest_hash = write_json(manifests / "blocks.manifest.json", blocks_manifest)
+    write_json(root / "artifacts" / "source" / "source.integrity.json", source_manifest)
+    write_json(manifests / "pipeline.manifest.json", pipeline_manifest(root, source_manifest))
+    source_manifest_hash = sha256_file(manifests / "source.manifest.json")
+
     preflight_result, outline = outline_preflight(outline_path, evidence_class)
     write_json(root / "artifacts" / "analysis" / "OUTLINE_PREFLIGHT.json", preflight_result)
     if preflight_result["status"] != "VERIFIED" or outline is None:
-        # Mapping validation is not emitted before review admission; MAP-000 is
-        # an admission prerequisite rather than a bypass around outline review.
         review_validation = verify_outline_review(root, outline or {}, evidence_class, outline_path)
-        return {"status": "BLOCKED", "stage": "outline preflight", "outline_preflight": preflight_result, "review_validation": review_validation}
+        admission = mapping_admission_record(root, source_manifest_hash, block_manifest_hash, None, review_validation, None, mapping_input, outline_path=outline_path, evidence_class=evidence_class)
+        write_mapping_blocked_reports(root, "outline preflight", preflight_result.get("blocking_condition", "outline preflight failed"), ["artifacts/analysis/OUTLINE_PREFLIGHT.json", "artifacts/mapping/MAP_000_ADMISSION.json"])
+        return {"status": "BLOCKED", "stage": "outline preflight", "outline_preflight": preflight_result, "review_validation": review_validation, "mapping_admission": admission}
+
     write_json(root / "artifacts" / "analysis" / "outline.manifest.json", outline)
     review_validation = verify_outline_review(root, outline, evidence_class, outline_path)
     if review_validation["status"] != "VERIFIED":
-        # MAP-000 is an admission prerequisite.  Do not emit mapping.validation.json
-        # until the external review replay has succeeded.
-        return {"status": "BLOCKED", "stage": "mapping admission", "outline": outline, "outline_preflight": preflight_result, "review_validation": review_validation}
+        admission = mapping_admission_record(root, source_manifest_hash, block_manifest_hash, outline, review_validation, None, mapping_input, outline_path=outline_path, evidence_class=evidence_class)
+        write_mapping_blocked_reports(root, "mapping admission", "external outline review is absent, invalid, or stale", ["artifacts/review/OUTLINE_REVIEW_VALIDATION.json", "artifacts/mapping/MAP_000_ADMISSION.json"])
+        return {"status": "BLOCKED", "stage": "mapping admission", "outline": outline, "outline_preflight": preflight_result, "review_validation": review_validation, "mapping_admission": admission}
+
     if not mapping_input.exists():
-        errors = ["MAP-001: mapping.input.json is absent; mapping input must be separately supplied"]
-        record = mapping_validation_record(None, errors, source_manifest_hash, outline, evidence_class)
-        record.update({"mapping_file": mapping_input.relative_to(root).as_posix(), "review_validation_status": review_validation["status"], "admission": "BLOCKED"})
-        write_json(mapping_validation_artifact, record)
-        return {"status": "BLOCKED", "stage": "mapping validation", "outline": outline, "review_validation": review_validation, "mapping_validation": record}
+        admission = mapping_admission_record(root, source_manifest_hash, block_manifest_hash, outline, review_validation, None, mapping_input, outline_path=outline_path, evidence_class=evidence_class)
+        write_mapping_blocked_reports(root, "mapping admission", "mapping.input.json is absent; no mapping validation or authorization is permitted", ["artifacts/mapping/MAP_000_ADMISSION.json", "artifacts/mapping/mapping.input.json"])
+        return {"status": "BLOCKED", "stage": "mapping admission", "outline": outline, "review_validation": review_validation, "mapping_admission": admission}
+
     try:
         mapping = load_json(mapping_input)
     except (OSError, PipelineError, json.JSONDecodeError) as exc:
         mapping = None
-        errors = [f"MAP-001: unable to read mapping.input.json: {exc}"]
+        mapping_errors = [f"MAP-001: unable to read mapping.input.json: {exc}"]
     else:
-        errors = validate_mapping(mapping, blocks, outline, source_manifest_hash)
-    record = mapping_validation_record(mapping, errors, source_manifest_hash, outline, evidence_class)
-    record.update({"mapping_file": mapping_input.relative_to(root).as_posix(), "review_validation_status": review_validation["status"], "admission": "AUTHORIZED" if not errors else "BLOCKED"})
-    write_json(mapping_validation_artifact, record)
-    return {"status": "VERIFIED" if not errors else "BLOCKED", "stage": "mapping validation", "source_manifest": source_manifest, "blocks": blocks, "outline": outline, "review_validation": review_validation, "mapping_validation": record, "mapping": mapping}
+        mapping_errors = validate_mapping(
+            mapping,
+            blocks,
+            outline,
+            source_manifest_hash,
+            block_manifest_hash,
+            review_validation.get("review_record_sha256"),
+        )
+    replay_errors = list(mapping_errors)
+    if isinstance(mapping, Mapping):
+        replay_errors = validate_mapping(
+            mapping,
+            blocks,
+            outline,
+            source_manifest_hash,
+            block_manifest_hash,
+            review_validation.get("review_record_sha256"),
+        )
+    deterministic = mapping_errors == replay_errors
+    admission = mapping_admission_record(
+        root,
+        source_manifest_hash,
+        block_manifest_hash,
+        outline,
+        review_validation,
+        mapping,
+        mapping_input,
+        mapping_errors,
+        outline_path,
+        evidence_class,
+    )
+    validation = mapping_validation_record(
+        mapping,
+        mapping_errors,
+        source_manifest_hash,
+        outline,
+        evidence_class,
+        block_manifest_hash=block_manifest_hash,
+        review_validation=review_validation,
+        admission_status=admission["status"],
+        deterministic=deterministic,
+        canonical_order_valid=True,
+        canonical_hash_valid=not any("MAP-013" in error for error in mapping_errors),
+    )
+    validation.update({
+        "mapping_file": mapping_input.relative_to(root).as_posix(),
+        "review_validation_status": review_validation["status"],
+        "admission": "AUTHORIZED" if validation["status"] == "AUTHORIZED" else "BLOCKED",
+    })
+    write_json(mapping_validation_artifact, validation)
+    write_text(
+        root / "artifacts" / "mapping" / "MAPPING_VALIDATION.md",
+        report(
+            "MAPPING_VALIDATION",
+            "VERIFIED" if validation["status"] == "AUTHORIZED" else "BLOCKED",
+            [{"gate": check["gate_id"], "status": check["status"], "expected": check["expected"], "observed": check["observed"], "affected_artifacts": ["artifacts/mapping/mapping.validation.json"]} for check in validation["checks"]],
+            "Mapping validation is distinct from assembly, certification, and finalization.",
+            evidence_class=evidence_class,
+        ),
+    )
+    if validation["status"] != "AUTHORIZED":
+        write_mapping_blocked_reports(root, "mapping validation", "; ".join(mapping_errors) or "one or more mapping gates failed", ["artifacts/mapping/mapping.input.json", "artifacts/mapping/mapping.validation.json"])
+        return {"status": "BLOCKED", "stage": "mapping validation", "errors": mapping_errors, "outline": outline, "review_validation": review_validation, "mapping_admission": admission, "mapping_validation": validation}
 
+    authorization = write_mapping_authorization(root, mapping, validation, outline, review_validation, block_manifest_hash)
+    return {
+        "status": "AUTHORIZED",
+        "stage": "mapping authorization",
+        "source_manifest": source_manifest,
+        "blocks": blocks,
+        "outline": outline,
+        "review_validation": review_validation,
+        "mapping_admission": admission,
+        "mapping_validation": validation,
+        "mapping_authorization": authorization,
+    }
 
 def mapping_order(mapping: Mapping[str, Any], outline: Mapping[str, Any], blocks: Sequence[Mapping[str, Any]]) -> list[str]:
     outline_positions = {node["outline_id"]: index for index, node in enumerate(outline["nodes"])}
     source_positions = {block["block_id"]: block["source"]["sequence"] for block in blocks}
     entries = [entry for entry in mapping.get("entries", []) if entry.get("role") == "PRIMARY"]
-    entries.sort(key=lambda entry: (outline_positions[entry["target"]], entry.get("placement", entry.get("order")), source_positions[entry["block_id"]], entry["block_id"]))
+    entries.sort(key=lambda entry: (outline_positions[entry["target_id"]], entry["placement"], source_positions[entry["block_id"]], entry["block_id"]))
     result = [entry["block_id"] for entry in entries]
-    result.extend(sorted(mapping.get("unmapped_block_ids", []), key=lambda block_id: source_positions[block_id]))
+    explicit_unmapped = {entry["block_id"] for entry in mapping.get("entries", []) if entry.get("role") == "EXPLICITLY_UNMAPPED"}
+    unmapped = set(mapping.get("unmapped_block_ids", [])) | explicit_unmapped
+    result.extend(sorted(unmapped, key=lambda block_id: source_positions[block_id]))
     return result
 
 def pipeline_bundle_hash(root: Path) -> str:
@@ -965,9 +1332,11 @@ def assemble(
     outline_positions = {node["outline_id"]: index for index, node in enumerate(outline["nodes"])}
     rows_by_outline: dict[str, list[dict[str, Any]]] = {}
     for entry in mapping.get("entries", []):
-        rows_by_outline.setdefault(entry["target"], []).append(entry)
+        if entry.get("role") == "EXPLICITLY_UNMAPPED":
+            continue
+        rows_by_outline.setdefault(entry["target_id"], []).append(entry)
     for entries in rows_by_outline.values():
-        entries.sort(key=lambda entry: (entry["role"] != "PRIMARY", entry.get("placement", entry.get("order", 0)), entry["block_id"]))
+        entries.sort(key=lambda entry: (entry["role"] != "PRIMARY", entry["placement"], entry["block_id"]))
     source_positions = {block["block_id"]: block["source"]["sequence"] for block in blocks}
     output = bytearray()
     placements: list[dict[str, Any]] = []
@@ -1019,7 +1388,8 @@ def assemble(
             if row["role"] != "PRIMARY":
                 structural(f"[{row['role']}: {row['block_id']}]\n")
 
-    unmapped = sorted(mapping.get("unmapped_block_ids", []), key=lambda item: source_positions[item])
+    explicit_unmapped = {entry["block_id"] for entry in mapping.get("entries", []) if entry.get("role") == "EXPLICITLY_UNMAPPED"}
+    unmapped = sorted(set(mapping.get("unmapped_block_ids", [])) | explicit_unmapped, key=lambda item: source_positions[item])
     if unmapped:
         structural("# Unmapped source blocks\n")
         structural("<!-- STRUCTURAL POLICY: UNMAPPED blocks retain source payload below -->\n")
@@ -1625,7 +1995,11 @@ def preflight_audits(root: Path, source_path: Path, source_manifest: Mapping[str
 def invalidate_downstream(root: Path) -> None:
     """Remove generated artifacts that cannot survive a failed admission gate."""
     generated_files = (
+        root / "artifacts" / "mapping" / "MAP_000_ADMISSION.json",
+        root / "artifacts" / "mapping" / "MAP_000_ADMISSION.md",
         root / "artifacts" / "mapping" / "mapping.validation.json",
+        root / "artifacts" / "mapping" / "MAPPING_VALIDATION.md",
+        root / "artifacts" / "mapping" / "mapping.canonical.json",
         root / "pipeline" / "manifests" / "mapping.manifest.json",
         root / "pipeline" / "manifests" / "verification.manifest.json",
         root / "pipeline" / "manifests" / "release.manifest.json",
@@ -1653,7 +2027,14 @@ def clean_generated(root: Path) -> None:
                     child.unlink()
                 elif child.is_dir():
                     shutil.rmtree(child)
-    for relative in ("artifacts/review/OUTLINE_REVIEW_VALIDATION.json", "artifacts/mapping/mapping.validation.json"):
+    for relative in (
+        "artifacts/review/OUTLINE_REVIEW_VALIDATION.json",
+        "artifacts/mapping/MAP_000_ADMISSION.json",
+        "artifacts/mapping/MAP_000_ADMISSION.md",
+        "artifacts/mapping/mapping.validation.json",
+        "artifacts/mapping/MAPPING_VALIDATION.md",
+        "artifacts/mapping/mapping.canonical.json",
+    ):
         generated = root / relative
         if generated.exists():
             generated.unlink()
@@ -1751,7 +2132,7 @@ def run_pipeline(root: Path, source_name: str = SOURCE_FILE, outline_name: str =
     if review_validation["status"] != "VERIFIED":
         message = render_failure_report(
             "outline review",
-            "REVIEW-001..008",
+            "REVIEW-001..009",
             "human review replay and exact outline binding",
             "MANUAL_REVIEW ACCEPT record bound to current reviewed outline hashes",
             "outline review is absent, invalid, or the outline remains PROVISIONAL",
@@ -1760,102 +2141,10 @@ def run_pipeline(root: Path, source_name: str = SOURCE_FILE, outline_name: str =
             str(outline_artifact.relative_to(root)),
             "Obtain an explicit human review record. Do not create or alter OUTLINE_REVIEW.json automatically and do not infer human approval from structural preflight.",
         )
+        write_evidence_scope(root, "BLOCKED", "PARTIALLY_VERIFIED")
+        mapping_result = validate_mapping_admission(root, source_name, outline_name, "REPOSITORY")
         write_text(root / "FAILURE_REPORT.md", message)
         write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", message)
         write_recovery(root, recovery_plan("outline review", "artifacts/review/OUTLINE_REVIEW.json", str(outline_artifact.relative_to(root)), "a human-supplied ACCEPT review record bound to the exact outline", "python3 -m pipeline.run review-verify", ["review evidence_class must be MANUAL_REVIEW", "decision must be ACCEPT", "raw and normalized outline hashes must match", "BOOK_OUTLINE.md must explicitly be REVIEWED"]))
-        write_evidence_scope(root, "BLOCKED", "PARTIALLY_VERIFIED")
-        return {"status": "BLOCKED", "stage": "outline review", "outline": outline, "outline_preflight": outline_preflight_result, "review_validation": review_validation}
-    mapping_input = root / "artifacts" / "mapping" / "mapping.input.json"
-    mapping_validation_artifact = root / "artifacts" / "mapping" / "mapping.validation.json"
-    if not mapping_input.exists():
-        mapping_validation = mapping_validation_record(
-            None,
-            ["MAP-001: mapping.input.json is absent; mapping input must be separately supplied"],
-            sha256_file(manifests / "source.manifest.json"),
-            outline,
-            "REPOSITORY",
-        )
-        mapping_validation.update({"mapping_file": mapping_input.relative_to(root).as_posix(), "review_validation_status": review_validation["status"], "admission": "BLOCKED"})
-        write_json(mapping_validation_artifact, mapping_validation)
-        message = render_failure_report(
-            "mapping preflight",
-            "G-MAP-001",
-            "mapping input availability",
-            "a reviewed mapping input connecting blocks to outline nodes",
-            "mapping.input.json is absent; no mapping has been authorized",
-            ["BOOK_OUTLINE.md", "pipeline/manifests/source.manifest.json", "pipeline/manifests/blocks.manifest.json", str(outline_artifact.relative_to(root)), str(mapping_validation_artifact.relative_to(root))],
-            [],
-            str(outline_artifact.relative_to(root)),
-            "Create artifacts/mapping/mapping.input.json from reviewed planning data. It must reference the current source_manifest_hash and outline_hash, declare review_status REVIEWED, and must not alter source block text.",
-        )
-        write_text(root / "FAILURE_REPORT.md", message)
-        write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", message)
-        write_recovery(root, recovery_plan("mapping preflight", "artifacts/mapping/mapping.input.json", str(outline_artifact.relative_to(root)), "a reviewed mapping.input.json", "python3 -m pipeline.run run", ["every block must be PRIMARY or explicitly UNMAPPED", "all targets must resolve to outline nodes", "mapping validation must be VERIFIED"]))
-        return {"status": "BLOCKED", "stage": "mapping preflight", "source_manifest": source_manifest, "blocks": blocks, "outline": outline, "mapping_validation": mapping_validation}
-
-    try:
-        mapping = load_json(mapping_input)
-    except (OSError, PipelineError, json.JSONDecodeError) as exc:
-        mapping = None
-        mapping_errors = [str(exc)]
-    else:
-        mapping_errors = validate_mapping(mapping, blocks, outline, sha256_file(manifests / "source.manifest.json"))
-    mapping_validation = mapping_validation_record(mapping, mapping_errors, sha256_file(manifests / "source.manifest.json"), outline, "REPOSITORY")
-    mapping_validation["mapping_file"] = mapping_input.relative_to(root).as_posix()
-    write_json(mapping_validation_artifact, mapping_validation)
-    if mapping_errors:
-        message = render_failure_report(
-            "mapping validation",
-            "G-MAP-001",
-            "mapping schema and provenance",
-            "valid rows, one PRIMARY or explicit UNMAPPED per block, matching outline hash",
-            "; ".join(mapping_errors),
-            [str(mapping_input.relative_to(root)), str(outline_artifact.relative_to(root)), str(mapping_validation_artifact.relative_to(root))],
-            [],
-            str(outline_artifact.relative_to(root)),
-            "Fix the planning input and rerun. Do not edit a frozen manifest or hash to make verification pass.",
-        )
-        write_text(root / "FAILURE_REPORT.md", message)
-        write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", message)
-        write_recovery(root, recovery_plan("mapping validation", "mapping.input.json", str(outline_artifact.relative_to(root)), "a corrected reviewed mapping input", "python3 -m pipeline.run run", ["mapping validation must be VERIFIED", "assembly must use only validated rows", "all mandatory verification gates must pass before release"]))
-        return {"status": "BLOCKED", "stage": "mapping validation", "errors": mapping_errors, "mapping_validation": mapping_validation}
-
-    ordered_entries = sorted(mapping.get("entries", []), key=lambda entry: (entry["block_id"], entry["role"], entry.get("target") or "", entry.get("placement", entry.get("order", 0))))
-    mapping_manifest = dict(mapping)
-    mapping_manifest.update({
-        "manifest_type": "mapping",
-        "manifest_version": "1.0.0",
-        "source_manifest_hash": sha256_file(manifests / "source.manifest.json"),
-        "source_manifest_hash_domain": "canonical UTF-8 bytes of source.manifest.json",
-        "outline_hash": outline["normalized_sha256"],
-        "outline_hash_domain": "outline normalized_sha256 over canonical UTF-8 outline bytes",
-        "outline_manifest_sha256": sha256_file(outline_artifact),
-        "mapping_input_sha256": sha256_file(mapping_input),
-        "canonical_order": "block_id, role, target, placement",
-        "entries": ordered_entries,
-    })
-    mapping_manifest["mapping_canonical_sha256"] = sha256_bytes(canonical_json_bytes({"mapping_version": mapping_manifest.get("mapping_version"), "source_manifest_hash": mapping_manifest.get("source_manifest_hash"), "outline_hash": mapping_manifest.get("outline_hash"), "outline_status": mapping_manifest.get("outline_status"), "review_status": mapping_manifest.get("review_status"), "entries": ordered_entries, "unmapped_block_ids": mapping_manifest.get("unmapped_block_ids", [])}))
-    write_json(manifests / "mapping.manifest.json", mapping_manifest)
-    book_path = root / "artifacts" / "assembly" / "BOOK_FINAL_CANDIDATE.md"
-    assembly_path = root / "artifacts" / "assembly" / "BOOK_ASSEMBLY.jsonl"
-    assemble(book_path, assembly_path, blocks, outline, mapping)
-    result = verify_assembled(root, source_path, source_manifest, blocks, outline, mapping, book_path, assembly_path, evidence_class="REPOSITORY")
-    if result["status"] != "VERIFIED":
-        failure = render_failure_report(
-            "mechanical verification",
-            "G-VRF-001..008",
-            "mandatory verification gates",
-            "all mandatory gates PASS",
-            "; ".join(item["gate"] for item in result["checks"] if item["status"] != "PASS") or "verification failed",
-            [str(book_path.relative_to(root)), str(assembly_path.relative_to(root)), "pipeline/manifests/verification.manifest.json"],
-            [],
-            "pipeline/manifests/mapping.manifest.json",
-            "Identify the failed gate, roll back to the last valid artifact, correct the input or stage, and rerun.",
-        )
-        write_text(root / "FAILURE_REPORT.md", failure)
-        write_text(root / "artifacts" / "verification" / "FAILURE_REPORT.md", failure)
-        write_recovery(root, recovery_plan("mechanical verification", "mandatory verifier gates", "pipeline/manifests/mapping.manifest.json", "the input or stage identified by the failed gate", "python3 -m pipeline.run run", ["the failed gate must be corrected", "verification must be rerun from the last valid artifact", "no release artifact may be manually repaired"]))
-        return result
-    release_result = release_certification(root, source_path, blocks, outline, mapping, book_path, assembly_path, result["manifest"])
-    release_result["verification"] = result
-    return release_result
+        return {"status": "BLOCKED", "stage": "outline review", "outline": outline, "outline_preflight": outline_preflight_result, "review_validation": review_validation, "mapping_admission": mapping_result.get("mapping_admission")}
+    return validate_mapping_admission(root, source_name, outline_name, "REPOSITORY")

@@ -1,7 +1,7 @@
 # Release contract
 
-The pipeline emits `BOOK_FINAL_CANDIDATE.md` first. The candidate is an object of verification and is never treated as released. Only after mandatory completeness, verbatim, provenance, order, roundtrip, determinism, idempotence, mutation, gap, duplicate, coverage, and release gates pass may it create `RELEASE_CERTIFICATE.json`, `RELEASE_CERTIFICATE.md`, and finally `BOOK_FINAL.md`.
+Revision 1.6 ends at the mapping authorization boundary. A successful mapping validation creates only deterministic mapping authorization evidence: `mapping.canonical.json`, `mapping.validation.json`, and `pipeline/manifests/mapping.manifest.json`. It does not create `BOOK_FINAL_CANDIDATE.md`, a certificate, or `BOOK_FINAL.md`.
 
-Repository evidence and fixture evidence are distinct. A fixture result cannot certify the authoritative repository. Certificate bindings include source, outline, mapping, block, verification, pipeline, and candidate hashes. Finalization is a byte-for-byte copy followed by a final hash check.
+Assembly, verification, certification, and finalization are later boundaries. Repository evidence and fixture evidence remain distinct. A fixture mapping cannot certify or authorize the authoritative repository mapping. Any stale or revoked review invalidates mapping authorization and all downstream authorization.
 
-Any absent authority, missing evidence, unresolved gap, failed gate, or unfrozen manifest is `BLOCKED`. There is no manual override. A blocked run must stop and write `FAILURE_REPORT.md` with stage, gate, check, expected result, observed result, affected artifacts, affected blocks, last valid artifact, and recovery action.
+Any absent authority, missing evidence, unresolved gap, failed gate, or unfrozen manifest is `BLOCKED`. There is no manual override. A blocked run must stop and write a failure report with stage, gate, check, expected result, observed result, affected artifacts, affected blocks, last valid artifact, and recovery action.

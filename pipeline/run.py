@@ -46,17 +46,17 @@ def main(argv: list[str] | None = None) -> int:
             result = verify_outline_review(root, outline, "REPOSITORY", root / args.outline)
             print(f"PIPELINE={result['status']}")
             print("STAGE=outline review")
-            return 0 if result["status"] == "VERIFIED" else 2
+            return 0 if result["status"] in {"VERIFIED", "AUTHORIZED"} else 2
         if args.command == "mapping-validate":
             result = validate_mapping_admission(root, args.source, args.outline)
             print(f"PIPELINE={result['status']}")
             print(f"STAGE={result.get('stage', 'mapping validation')}")
-            return 0 if result["status"] == "VERIFIED" else 2
+            return 0 if result["status"] in {"VERIFIED", "AUTHORIZED"} else 2
         result = run_pipeline(root, args.source, args.outline)
         print(f"PIPELINE={result.get('status', 'BLOCKED')}")
         if result.get("stage"):
             print(f"STAGE={result['stage']}")
-        return 0 if result.get("status") == "VERIFIED" else 2
+        return 0 if result.get("status") in {"VERIFIED", "AUTHORIZED"} else 2
     except PipelineError as exc:
         print(f"PIPELINE=BLOCKED\nERROR={exc}", file=sys.stderr)
         return 2

@@ -43,14 +43,16 @@ class MutationSuite(unittest.TestCase):
         outline = parse_outline(outline_path)
         mapping = {
             "mapping_version": "1.0",
+            "mapping_schema_version": "1.6.0",
             "source_manifest_hash": manifest_content_hash(source_manifest),
-            "outline_hash": outline["normalized_sha256"],
-            "outline_status": "REVIEWED",
+            "outline_raw_sha256": outline["raw_sha256"],
+            "outline_normalized_sha256": outline["normalized_sha256"],
+            "outline_review_hash": sha256_bytes(canonical_json_bytes({"fixture_review": True})),
             "review_status": "REVIEWED",
             "entries": [
                 {
                     "block_id": block["block_id"],
-                    "target": "O0003",
+                    "target_id": "O0003",
                     "placement": block["source"]["sequence"],
                     "role": "PRIMARY",
                 }
@@ -168,7 +170,7 @@ class MutationSuite(unittest.TestCase):
             mutations = {
                 "mapping_version": "9.9",
                 "source_manifest_hash": "0" * 64,
-                "outline_hash": "0" * 64,
+                "outline_normalized_sha256": "0" * 64,
                 "review_status": "DRAFT",
             }
             for key, value in mutations.items():
@@ -176,7 +178,7 @@ class MutationSuite(unittest.TestCase):
                 mutated_mapping[key] = value
                 mutated_result = verify_assembled(root, source, manifest, blocks, outline, mutated_mapping, book, assembly)
                 self.assertEqual(self.gates(mutated_result)["G-MAP-001"], "FAIL", key)
-            for entry_key, value in (("block_id", "B0999"), ("target", "O9999"), ("role", "INVALID"), ("placement", 0)):
+            for entry_key, value in (("block_id", "B0999"), ("target_id", "O9999"), ("role", "INVALID"), ("placement", 0)):
                 mutated_mapping = copy.deepcopy(mapping)
                 mutated_mapping["entries"][0][entry_key] = value
                 mutated_result = verify_assembled(root, source, manifest, blocks, outline, mutated_mapping, book, assembly)
