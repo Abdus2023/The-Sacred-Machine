@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from .certification import certify_candidate, verify_candidate_independently, verify_certification_certificate
+from .finalization import finalize_candidate, verify_final
 from .core import PipelineError, clean_generated, invalidate_downstream, outline_preflight, run_pipeline, validate_mapping_admission, verify_outline_review, write_json
 
 
@@ -14,7 +15,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Lossless Source.md reconstruction pipeline; no editorial rewriting is performed."
     )
-    parser.add_argument("command", choices=["run", "outline-preflight", "review-verify", "mapping-validate", "candidate-verify", "certify", "certificate-verify", "clean"], help="execute a gated pipeline stage or remove generated artifacts")
+    parser.add_argument("command", choices=["run", "outline-preflight", "review-verify", "mapping-validate", "candidate-verify", "certify", "certificate-verify", "finalize", "verify-final", "clean"], help="execute a gated pipeline stage or remove generated artifacts")
     parser.add_argument("--root", default=None, help="repository root (default: parent of pipeline package)")
     parser.add_argument("--source", default="Source.md", help="authoritative source filename")
     parser.add_argument("--outline", default="BOOK_OUTLINE.md", help="authoritative outline filename")
@@ -68,6 +69,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"PIPELINE={result['status']}")
             print("STAGE=certificate verification")
             return 0 if result["status"] == "VERIFIED" else 2
+        if args.command == "finalize":
+            result = finalize_candidate(root, "REPOSITORY")
+            print(f"PIPELINE={result['status']}")
+            print("STAGE=finalization")
+            return 0 if result["status"] == "FINALIZED" else 2
+        if args.command == "verify-final":
+            result = verify_final(root, "REPOSITORY")
+            print(f"PIPELINE={result['status']}")
+            print("STAGE=final verification")
+            return 0 if result["status"] == "FINALIZED" else 2
         result = run_pipeline(root, args.source, args.outline)
         print(f"PIPELINE={result.get('status', 'BLOCKED')}")
         if result.get("stage"):

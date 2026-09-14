@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "finalization.schema.json",
+  "title": "Revision 1.9 certified candidate finalization",
+  "type": "object",
+  "required": ["manifest_type", "manifest_version", "status", "finalization_status", "candidate_sha256", "final_sha256", "release_certificate_hash", "source_manifest_hash", "block_manifest_hash", "outline_raw_sha256", "outline_normalized_sha256", "outline_review_hash", "mapping_sha256", "assembly_manifest_hash", "verification_manifest_hash", "pipeline_version", "finalization_schema_version"],
+  "properties": {
+    "manifest_type": {"const": "final"},
+    "manifest_version": {"const": "1.9.0"},
+    "status": {"enum": ["FINALIZED", "INVALID", "BLOCKED"]},
+    "finalization_status": {"enum": ["BLOCKED", "AUTHORIZED", "FINALIZED", "INVALID"]},
+    "release_status": {"enum": ["BLOCKED", "READY"]},
+    "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "final_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "release_certificate_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "block_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "outline_raw_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "outline_normalized_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "outline_review_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mapping_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "assembly_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verification_manifest_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "pipeline_version": {"const": "1.9.0"},
+    "finalization_schema_version": {"const": "1.9.0"}
+  }
+}

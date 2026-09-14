@@ -58,7 +58,7 @@ class AssemblyMutationTests(unittest.TestCase):
         mapping = {
             "mapping_version": "1.0",
             "mapping_schema_version": "1.6.0",
-            "pipeline_version": "1.8.0",
+            "pipeline_version": "1.9.0",
             "source_manifest_hash": sha256_bytes(canonical_json_bytes(source_manifest)),
             "block_manifest_hash": block_manifest_hash,
             "outline_raw_sha256": self.outline["raw_sha256"],

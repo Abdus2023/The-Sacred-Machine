@@ -2379,6 +2379,10 @@ def invalidate_assembly_outputs(root: Path) -> None:
         root / "artifacts" / "verification" / "CANDIDATE_VERIFICATION.json",
         root / "artifacts" / "verification" / "CANDIDATE_VERIFICATION.md",
         root / "artifacts" / "verification" / "RELEASE_CERTIFICATE.json",
+        root / "artifacts" / "verification" / "FINAL_000_ADMISSION.json",
+        root / "artifacts" / "verification" / "FINAL_000_ADMISSION.md",
+        root / "artifacts" / "verification" / "FINAL_VERIFICATION.json",
+        root / "artifacts" / "verification" / "FINAL_VERIFICATION.md",
     ):
         if path.exists():
             path.unlink()
@@ -2586,3 +2590,15 @@ def verify_certification_certificate(root: Path, certificate_path: Path | None =
     """Lazy public API wrapper for certificate mutation verification."""
     from .certification import verify_certification_certificate as _verify_certificate
     return _verify_certificate(root, certificate_path)
+
+
+def finalize_candidate(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Lazy public API wrapper for Revision 1.9 finalization."""
+    from .finalization import finalize_candidate as _finalize
+    return _finalize(root, evidence_class)
+
+
+def verify_final(root: Path, evidence_class: str = "REPOSITORY") -> dict[str, Any]:
+    """Lazy public API wrapper for final artifact verification."""
+    from .finalization import verify_final as _verify_final
+    return _verify_final(root, evidence_class)
