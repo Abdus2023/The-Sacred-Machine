@@ -14,18 +14,21 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from . import PIPELINE_VERSION
-from .certification import verify_certification_certificate
 from .core import (
     EVIDENCE_CLASSES,
     PipelineError,
+    assembly_dependency_payload,
     assembly_order,
+    canonical_json_bytes,
     load_json,
     load_jsonl,
     mapping_sha256,
+    parse_outline,
     pipeline_bundle_hash,
     report,
     sha256_bytes,
     sha256_file,
+    source_hash_record,
     write_json,
     write_text,
 )
@@ -39,6 +42,7 @@ def _check(gate: str, status: str, expected: str, observed: str, artifacts: Sequ
 
 def _paths(root: Path) -> dict[str, Path]:
     return {
+        "source": root / "Source.md",
         "candidate": root / "artifacts/assembly/BOOK_FINAL_CANDIDATE.md",
         "certificate": root / "artifacts/verification/RELEASE_CERTIFICATE.json",
         "verification": root / "pipeline/manifests/verification.manifest.json",
@@ -48,8 +52,10 @@ def _paths(root: Path) -> dict[str, Path]:
         "outline": root / "BOOK_OUTLINE.md",
         "review": root / "artifacts/review/OUTLINE_REVIEW.json",
         "mapping_manifest": root / "pipeline/manifests/mapping.manifest.json",
+        "mapping_input": root / "artifacts/mapping/mapping.input.json",
         "mapping": root / "artifacts/mapping/mapping.canonical.json",
         "mapping_validation": root / "artifacts/mapping/mapping.validation.json",
+        "map000": root / "artifacts/mapping/MAP_000_ADMISSION.json",
         "assembly_manifest": root / "pipeline/manifests/assembly.manifest.json",
         "assembly_dependencies": root / "artifacts/assembly/assembly.dependencies.json",
         "assembly": root / "artifacts/assembly/BOOK_ASSEMBLY.jsonl",
@@ -113,6 +119,64 @@ def _final_payload_check(root: Path, candidate: bytes, final: bytes) -> tuple[bo
     return roundtrip, not provenance_failures, completeness, provenance_failures
 
 
+def _revalidate_certificate_without_assembly(root: Path, evidence_class: str) -> dict[str, Any]:
+    """Revalidate certificate edges without invoking decomposition or assembly."""
+    paths = _paths(root)
+    checks: list[dict[str, Any]] = []
+    certificate = _read_json(paths["certificate"])
+    bindings = certificate.get("bindings", {}) if isinstance(certificate, Mapping) else {}
+    schema_ok = isinstance(certificate, dict) and certificate.get("artifact_type") == "release_certificate" and certificate.get("certificate_version") == "1.8.0" and certificate.get("status") == "CERTIFIED" and certificate.get("certification_status") == "CERTIFIED" and certificate.get("evidence_class") == evidence_class and certificate.get("finalization") == "FORBIDDEN_IN_REVISION_1_8"
+    checks.append(_check("FINAL-000", "PASS" if schema_ok else "FAIL", "certificate schema, status, and evidence class are exact", "valid" if schema_ok else "invalid", [str(paths["certificate"])]))
+    candidate_hash = sha256_file(paths["candidate"]) if paths["candidate"].exists() else None
+    checks.append(_check("FINAL-000", "PASS" if candidate_hash is not None and bindings.get("candidate_sha256") == candidate_hash else "FAIL", "certificate candidate hash equals current candidate bytes", "match" if candidate_hash and bindings.get("candidate_sha256") == candidate_hash else "mismatch", [str(paths["candidate"])]))
+    source_manifest = _read_json(paths["source_manifest"])
+    try:
+        current_source = source_hash_record(paths["source"])
+        source_ok = isinstance(source_manifest, dict) and source_manifest.get("raw_sha256") == current_source.get("raw_sha256") and source_manifest.get("normalized_sha256") == current_source.get("normalized_sha256")
+    except (OSError, ValueError, PipelineError):
+        source_ok = False
+    source_manifest_hash = sha256_file(paths["source_manifest"]) if paths["source_manifest"].exists() else None
+    checks.append(_check("FINAL-000", "PASS" if source_ok and bindings.get("source_manifest_hash") == source_manifest_hash else "FAIL", "current Source.md identity and source manifest hash remain certified", "current" if source_ok and bindings.get("source_manifest_hash") == source_manifest_hash else "stale", [str(paths["source"]), str(paths["source_manifest"])]))
+    blocks_manifest = _read_json(paths["blocks_manifest"])
+    blocks_hash = sha256_file(paths["blocks_manifest"]) if paths["blocks_manifest"].exists() else None
+    blocks_ok = isinstance(blocks_manifest, dict) and blocks_manifest.get("source_manifest_sha256") == source_manifest_hash and blocks_hash == bindings.get("block_manifest_hash") and paths["blocks"].exists() and blocks_manifest.get("blocks_artifact_sha256") == sha256_file(paths["blocks"])
+    checks.append(_check("FINAL-000", "PASS" if blocks_ok else "FAIL", "block manifest remains source-bound and hash-current", "current" if blocks_ok else "stale", [str(paths["blocks_manifest"]), str(paths["blocks"])]))
+    try:
+        outline = parse_outline(paths["outline"])
+        outline_ok = outline.get("outline_status") == "REVIEWED" and outline.get("raw_sha256") == bindings.get("outline_raw_sha256") and outline.get("normalized_sha256") == bindings.get("outline_normalized_sha256")
+    except (OSError, ValueError, PipelineError):
+        outline, outline_ok = None, False
+    checks.append(_check("FINAL-000", "PASS" if outline_ok else "FAIL", "current outline raw/normalized hashes remain reviewed and certified", "current" if outline_ok else "stale", [str(paths["outline"])]))
+    review = _read_json(paths["review"])
+    review_hash = sha256_file(paths["review"]) if paths["review"].exists() else None
+    review_ok = isinstance(review, dict) and outline is not None and review.get("evidence_class") == "MANUAL_REVIEW" and review.get("decision") == "ACCEPT" and review.get("review_status") == "REVIEWED" and review.get("outline_raw_sha256") == outline.get("raw_sha256") and review.get("outline_normalized_sha256") == outline.get("normalized_sha256") and review_hash == bindings.get("outline_review_hash")
+    checks.append(_check("FINAL-000", "PASS" if review_ok else "FAIL", "current MANUAL_REVIEW ACCEPT record remains bound", "current" if review_ok else "stale or revoked", [str(paths["review"])]))
+    mapping = _read_json(paths["mapping"])
+    mapping_manifest = _read_json(paths["mapping_manifest"])
+    mapping_value_hash = mapping_sha256(mapping) if isinstance(mapping, dict) else None
+    mapping_ok = isinstance(mapping_manifest, dict) and paths["mapping_input"].exists() and mapping_value_hash == bindings.get("mapping_sha256") and mapping_manifest.get("mapping_sha256") == mapping_value_hash and mapping_manifest.get("mapping_input_sha256") == sha256_file(paths["mapping_input"]) and mapping_manifest.get("status") == "AUTHORIZED" and mapping_manifest.get("authorization") == "AUTHORIZED" and mapping_manifest.get("block_manifest_hash") == blocks_hash and mapping_manifest.get("outline_review_hash") == review_hash and mapping_manifest.get("mapping_validation_sha256") == (sha256_file(paths["mapping_validation"]) if paths["mapping_validation"].exists() else None)
+    checks.append(_check("FINAL-000", "PASS" if mapping_ok else "FAIL", "authorized canonical mapping remains current", "current" if mapping_ok else "stale or invalid", [str(paths["mapping"]), str(paths["mapping_manifest"])]))
+    map000 = _read_json(paths["map000"])
+    map000_ok = isinstance(map000, dict) and map000.get("status") == "PASS" and map000.get("mapping_sha256") == mapping_value_hash
+    checks.append(_check("FINAL-000", "PASS" if map000_ok else "FAIL", "MAP-000 remains a current PASS admission", "PASS" if map000_ok else "invalid", [str(paths["map000"])]))
+    assembly_manifest = _read_json(paths["assembly_manifest"])
+    assembly_manifest_hash = sha256_file(paths["assembly_manifest"]) if paths["assembly_manifest"].exists() else None
+    verification_manifest = _read_json(paths["verification"])
+    verification_manifest_hash = sha256_file(paths["verification"]) if paths["verification"].exists() else None
+    pipeline_manifest = _read_json(paths["pipeline_manifest"])
+    pipeline_ok = isinstance(pipeline_manifest, dict) and pipeline_manifest.get("pipeline_version") == PIPELINE_VERSION and pipeline_manifest.get("pipeline_bundle_sha256") == pipeline_bundle_hash(root) and bindings.get("pipeline_version") == PIPELINE_VERSION
+    checks.append(_check("FINAL-000", "PASS" if pipeline_ok else "FAIL", "pipeline version and bundle remain compatible", "current" if pipeline_ok else "stale", [str(paths["pipeline_manifest"])]))
+    contract_hash = sha256_file(root / "pipeline/contracts/assembly.md") if (root / "pipeline/contracts/assembly.md").exists() else None
+    assembly_dependencies = _read_json(paths["assembly_dependencies"])
+    expected_dependency = assembly_dependency_payload(source_manifest_hash, blocks_hash, outline or {}, review_hash, mapping_value_hash, sha256_file(paths["mapping_manifest"]) if paths["mapping_manifest"].exists() else None, contract_hash, candidate_hash)
+    assembly_ok = isinstance(assembly_manifest, dict) and assembly_manifest_hash == bindings.get("assembly_manifest_hash") and assembly_manifest.get("candidate_sha256") == candidate_hash and assembly_manifest.get("dependencies") == expected_dependency and assembly_dependencies == expected_dependency and assembly_manifest.get("dependency_sha256") == sha256_bytes(canonical_json_bytes(expected_dependency))
+    checks.append(_check("FINAL-000", "PASS" if assembly_ok else "FAIL", "assembly manifest and dependency record remain current", "current" if assembly_ok else "stale or invalid", [str(paths["assembly_manifest"]), str(paths["assembly_dependencies"])]))
+    verification_ok = isinstance(verification_manifest, dict) and verification_manifest_hash == bindings.get("verification_manifest_hash") and verification_manifest.get("status") == "VERIFIED" and verification_manifest.get("pipeline_version") == PIPELINE_VERSION
+    checks.append(_check("FINAL-000", "PASS" if verification_ok else "FAIL", "verification manifest remains current and VERIFIED", "current" if verification_ok else "stale or invalid", [str(paths["verification"])]))
+    status = "PASS" if all(item["status"] == "PASS" for item in checks) else "FAIL"
+    return {"status": status, "checks": checks, "certificate": certificate, "candidate_sha256": candidate_hash, "release_certificate_hash": sha256_file(paths["certificate"]) if paths["certificate"].exists() else None}
+
+
 def finalization_admission(root: Path, evidence_class: str = "REPOSITORY", allow_existing_final: bool = False) -> dict[str, Any]:
     if evidence_class not in EVIDENCE_CLASSES:
         raise ValueError(evidence_class)
@@ -121,9 +185,9 @@ def finalization_admission(root: Path, evidence_class: str = "REPOSITORY", allow
     missing = [name for name, path in paths.items() if name not in {"final", "final_manifest"} and not path.exists()]
     checks.append(_check("FINAL-000", "PASS" if not missing else "BLOCKED", "certified candidate finalization dependency chain exists", "all prerequisites present" if not missing else f"missing: {', '.join(missing)}", [str(paths[name]) for name in missing]))
     certificate = _read_json(paths["certificate"])
-    cert_verification = verify_certification_certificate(root, paths["certificate"])
+    cert_verification = _revalidate_certificate_without_assembly(root, evidence_class)
     cert_schema_ok = isinstance(certificate, dict) and certificate.get("artifact_type") == "release_certificate" and certificate.get("certificate_version") == "1.8.0" and certificate.get("status") == "CERTIFIED" and certificate.get("certification_status") == "CERTIFIED" and certificate.get("finalization") == "FORBIDDEN_IN_REVISION_1_8"
-    checks.append(_check("FINAL-000", "PASS" if cert_schema_ok and cert_verification.get("status") == "VERIFIED" else "FAIL", "current hash-bound CERTIFIED certificate independently revalidates", "valid" if cert_schema_ok and cert_verification.get("status") == "VERIFIED" else "stale, invalid, or absent", [str(paths["certificate"])]))
+    checks.append(_check("FINAL-000", "PASS" if cert_schema_ok and cert_verification.get("status") == "PASS" else "FAIL", "current hash-bound CERTIFIED certificate independently revalidates", "valid" if cert_schema_ok and cert_verification.get("status") == "PASS" else "stale, invalid, or absent", [str(paths["certificate"])]))
     candidate = paths["candidate"].read_bytes() if paths["candidate"].exists() else None
     candidate_hash = sha256_bytes(candidate) if candidate is not None else None
     candidate_ok = candidate is not None and candidate_hash == _certificate_binding(certificate or {}, "candidate_sha256")
