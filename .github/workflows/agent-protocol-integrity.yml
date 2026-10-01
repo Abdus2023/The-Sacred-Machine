@@ -1,0 +1,24 @@
+name: Agent Protocol Integrity
+
+on:
+  push:
+    paths:
+      - ".agent/**"
+  pull_request:
+    paths:
+      - ".agent/**"
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate protocol algebra
+        run: python .agent/tools/protocol_check.py .agent/templates/proposition.json
+
+      - name: Run protocol tests
+        run: python -m unittest discover -s .agent/tests -p 'test_*.py'
+
+      - name: Compile tools
+        run: python -m py_compile .agent/tools/*.py
