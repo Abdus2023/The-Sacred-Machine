@@ -1,0 +1,12 @@
+{
+  "proposition_id": "p-<id>",
+  "subject_id": "<subject>",
+  "statement": "<proposition>",
+  "evidence_references": [],
+  "result": "UNDETERMINED",
+  "derivation": "UNAVAILABLE",
+  "authority": "<authorized-source>",
+  "approved_derivation_rule": null,
+  "mandatory": true,
+  "gate": "BLOCKED"
+}
