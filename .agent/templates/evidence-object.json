@@ -1,0 +1,9 @@
+{
+  "evidence_id": "ev-<id>",
+  "source": "<source>",
+  "authority": "<authority>",
+  "observation": "<direct observation>",
+  "derivation": "DIRECT",
+  "captured_at": "<ISO-8601>",
+  "content_hash": "sha256:<digest>"
+}
