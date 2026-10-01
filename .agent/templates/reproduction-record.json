@@ -1,0 +1,26 @@
+{
+  "record_id": "repr-<source-short>-<sequence>",
+  "timestamp": "<ISO-8601>",
+  "source": {
+    "commit_sha": "<full-sha>",
+    "tree_hash": "<hash>",
+    "signature_verified": null
+  },
+  "workflow": {
+    "path": "<workflow-path>",
+    "definition_hash": "<hash>"
+  },
+  "environment": {
+    "os": "<os>",
+    "arch": "<arch>",
+    "shell": "<shell>",
+    "runtime_versions": {},
+    "dependency_state": "<hash-or-manifest>",
+    "path": "<PATH>",
+    "working_directory": "<path>",
+    "runner_identity": "<runner>"
+  },
+  "execution": [],
+  "derivation": "DIRECT",
+  "authority": "controlled-runner"
+}
