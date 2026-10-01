@@ -8,5 +8,6 @@
   "authority": "<authorized-source>",
   "approved_derivation_rule": null,
   "mandatory": true,
+  "required_result": "TRUE",
   "gate": "BLOCKED"
 }
