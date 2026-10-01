@@ -1,0 +1,18 @@
+{
+  "name": "evidence-first-agent-system",
+  "version": "1.0.0",
+  "protocol": "evidence-first-release-v1",
+  "skills": ["evidence-audit", "controlled-reproduction", "release-authorization", "historical-record", "skill-creator"],
+  "tools": ["protocol_check.py", "gate_eval.py", "hash_evidence.py", "repro_capture.py"],
+  "status": "FROZEN",
+  "truth_values": ["TRUE", "FALSE", "UNDETERMINED"],
+  "derivations": ["DIRECT", "DERIVED", "INFERRED", "UNAVAILABLE"],
+  "gate_decisions": ["AUTHORIZED", "REJECTED", "BLOCKED"],
+  "invariants": [
+    "INFERRED never authorizes",
+    "UNAVAILABLE never authorizes",
+    "reproduction never rewrites historical execution",
+    "historical observations are immutable",
+    "the thing verified must be exactly the thing released"
+  ]
+}
